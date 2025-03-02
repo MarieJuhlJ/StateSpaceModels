@@ -1,29 +1,25 @@
-from pathlib import Path
-
-import typer
+from torchvision import datasets, transforms
+import numpy as np
+from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
 
-
-class MyDataset(Dataset):
-    """My custom dataset."""
-
-    def __init__(self, data_path: Path) -> None:
-        self.data_path = data_path
-
-    def __len__(self) -> int:
-        """Return the length of the dataset."""
-
-    def __getitem__(self, index: int):
-        """Return a given sample from the dataset."""
-
-    def preprocess(self, output_folder: Path) -> None:
-        """Preprocess the raw data and save it to the output folder."""
-
-def preprocess(data_path: Path, output_folder: Path) -> None:
-    print("Preprocessing data...")
-    dataset = MyDataset(data_path)
-    dataset.preprocess(output_folder)
-
+class SMNIST(Dataset):
+    def __init__(self, train: bool = True):
+        super().__init__()
+        self.transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.5,), (0.5,))
+        ])
+        self.dataset = datasets.MNIST(root='./data', train=train, download=True, transform=self.transform)
+    
+    def __len__(self):
+        return len(self.dataset)
+    
+    def __getitem__(self, idx):
+        img, label = self.dataset[idx]
+        return img.flatten(), label
 
 if __name__ == "__main__":
-    typer.run(preprocess)
+    SMNIST = SMNIST()
+    img, label = SMNIST[0]
+    print(img.shape, label)

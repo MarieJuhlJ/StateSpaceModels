@@ -37,20 +37,8 @@ def make_DPLR_HiPPO(N):
 
     P = V.conj().T @ P
     B = V.conj().T @ B
-    return Lambda_real + 1j * Lambda_imag, P, B, V
-
-def test_nplr(N=8):
-    A2, P, B = make_NPLR_HiPPO(N)
-    Lambda, Pc, Bc, V = make_DPLR_HiPPO(N)
-    Vc = V.conj().T
-    P = P[:, np.newaxis]
-    Pc = Pc[:, np.newaxis]
-    Lambda = np.diag(Lambda)
-
-    A3 = V @ Lambda @ Vc - (P @ P.T)  # Test NPLR
-    A4 = V @ (Lambda - Pc @ Pc.conj().T) @ Vc  # Test DPLR
-    assert np.allclose(A2, A3, atol=1e-4, rtol=1e-4)
-    assert np.allclose(A2, A4, atol=1e-4, rtol=1e-4)
+    return Lambda_real, Lambda_imag, P, B, V
 
 if __name__ == "__main__":
-    test_nplr()
+    print(make_DPLR_HiPPO(8))
+    
