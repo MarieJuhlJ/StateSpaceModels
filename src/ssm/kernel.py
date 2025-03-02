@@ -18,7 +18,7 @@ def cauchy(v, omegas, Lambda):
 def fourier_kernel_DPLR(Lambda, P, Q, B, C, step, L):
     # Evaluate at roots of unity
     # Generating function is (-)z-transform, so we evaluate at (-)root
-    Omega_L = torch.exp((-2j * torch.pi) * (torch.arange(L) / L))
+    Omega_L = torch.exp((-2j * torch.pi) * (torch.arange(L, device=Lambda.device) / L))
 
     aterm = torch.stack([C.conj(), Q.conj()], dim=0)
     bterm = torch.stack([P, B], dim=0)

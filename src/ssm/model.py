@@ -71,7 +71,7 @@ class SSMLayer(nn.Module):
         
         self.Lambda_real = nn.Parameter(torch.randn(state_size))
         self.Lambda_imag = nn.Parameter(torch.randn(state_size))
-        self.step_size = nn.Parameter(torch.randn(1))
+        self.step_size = nn.Parameter(torch.empty(1).uniform_(1e-3, 1e-1))
         self.P = nn.Parameter(torch.randn(state_size))
         self.B = nn.Parameter(torch.randn(state_size))
         self.C_tilde = nn.Parameter(torch.randn(state_size))
