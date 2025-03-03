@@ -33,6 +33,7 @@ def make_DPLR_HiPPO(N):
     Lambda_imag, V = eigh(S * -1j)
     V = torch.tensor(V, dtype=torch.cfloat)
 
+<<<<<<< HEAD
     P = V.conj().T @ (P+0j)
     B = V.conj().T @ (B+0j)
     return Lambda_real + 1j * Lambda_imag, P, B, V
@@ -51,6 +52,12 @@ def test_nplr(N=8):
     assert np.allclose(A2, A3, atol=1e-4, rtol=1e-4)
     assert np.allclose(A2, A4, atol=1e-4, rtol=1e-4)
     print("NPLR and DPLR tests passed")
+=======
+    P = V.conj().T @ P
+    B = V.conj().T @ B
+    return Lambda_real, Lambda_imag, P, B, V
+>>>>>>> tuxen_branch
 
 if __name__ == "__main__":
-    test_nplr()
+    print(make_DPLR_HiPPO(8))
+    

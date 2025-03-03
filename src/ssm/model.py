@@ -1,4 +1,7 @@
 from torch import nn
+from ssm.hippo import make_DPLR_HiPPO
+from ssm.kernel import fourier_kernel_DPLR
+import lightning as L
 import torch
 from ssm.hippo import make_DPLR_HiPPO
 
