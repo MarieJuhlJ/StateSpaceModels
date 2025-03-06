@@ -1,13 +1,14 @@
-from ssm.model import S4
+from ssm.model import S4Model
 from ssm.data import SMNIST
-import lightning as L
+import lightning
 from torch.utils.data import DataLoader
 
-def train():
+def train(N=64, H=128, L=784, num_blocks=4, class_out=10):
+    model = S4Model(N=N, H=H, L=L, num_blocks=num_blocks, cls_out=class_out)
+    
     dataset_train = SMNIST()
     dataset_val = SMNIST(train = False)
-    model = S4(state_size=256, input_length=784, num_layers=3, num_blocks=1, cls_out=10)
-    trainer = L.Trainer(accelerator="gpu", max_epochs=1)
+    trainer = lightning.Trainer(accelerator="cpu", max_epochs=1)
     train_dataloader = DataLoader(dataset_train, batch_size=32, shuffle=True, num_workers=4)
     val_dataloader = DataLoader(dataset_val, batch_size=32, shuffle=False, num_workers=4)
     trainer.fit(model, train_dataloader, val_dataloader)
