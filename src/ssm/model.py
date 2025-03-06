@@ -1,7 +1,7 @@
 from torch import nn
 from ssm.hippo import make_DPLR_HiPPO
 from ssm.kernel import fourier_kernel_DPLR
-import pytorch_lightning as L
+import lightning
 import torch
 from ssm.hippo import make_DPLR_HiPPO
 from torch.utils.data import DataLoader
@@ -10,22 +10,28 @@ from torchvision import transforms
 import os
 
 class S4Layer(nn.Module):
-    def __init__(self, N, H, L):
+    """
+    S4Layer: A single layer of the S4 model implementing a kernel based on a DPLR HiPPO matrix.
+    
+    Args:
+        N: int: Size of hidden state space
+        L: int: Sequence length
+    """
+    def __init__(self, N: int, L: int):
         super(S4Layer, self).__init__()
 
         self.N = N
-        self.H = H
         self.L = L
 
         Lambda, P, B, _ = make_DPLR_HiPPO(N)
         
-        self.P = nn.Parameter(self.P)
-        self.B = nn.Parameter(self.B)
-        self.Lambda = nn.Parameter(self.Lambda)
+        self.P = nn.Parameter(P)
+        self.B = nn.Parameter(B)
+        self.Lambda = nn.Parameter(Lambda)
 
         # Define C as a complex number with real and imaginary parts sampled from a normal distribution with mean 0 and std 0.5**0.5
-        self.C_tilde = nn.Parameter(torch.randn(N, 2) * 0.5**0.5)
-        self.C_tilde = self.C_tilde[:, 0] + 1j * self.C_tilde[:, 1]
+        self.C_params = torch.randn(N, 2) * 0.5**0.5
+        self.C_tilde = nn.Parameter(self.C_params[:, 0] + 1j * self.C_params[:, 1])
 
         self.step_size = 1e-3 # Should this be a learnable parameter?
 
@@ -36,48 +42,81 @@ class S4Layer(nn.Module):
         return y.real
      
 class S4sequence(nn.Module):
-    def __init__(self, N, H, L):
-        super(S4sequence, self).__init__()
+    """
+    S4sequence: A sequence block encasing an S4 layer for each feature with normalization, 
+    position-wise linear layers and dropout.
 
-        self.norm = nn.LayerNorm()
-        self.layers = nn.vmap(S4Layer, in_dims=1, out_dims=1)(N, H, L)
-        self.linear = nn.Linear(H, H)
-        self.activation = nn.GLU()
-        self.output = nn.Linear(H, H)
+    Args:
+        N: int: Size of hidden state space
+        H: int: Number of features
+        L: int: Sequence length
+    """
+    def __init__(self, N: int, H: int, L:int, glu:bool=True):
+        super(S4sequence, self).__init__()
+        self.use_glu = glu
+
+        self.norm = nn.LayerNorm((L,H))
+        self.s4layers = nn.ModuleList([S4Layer(N, L) for _ in range(H)])
+        #self.layers = torch.vmap(S4Layer, in_dims=1 , out_dims=1)(N, H, L)
+        self.activation = nn.GELU() # Perhaps replace with ReLU based on "ReLU strikes back" paper (on LLM tasks)
+        self.out1 = nn.Linear(H, H)
+        if self.use_glu:
+            self.out2 = nn.Linear(H, H)
+            #self.glu = nn.GLU()
         self.dropout = nn.Dropout(0.1)
     
     def forward(self, x:torch.Tensor) -> torch.Tensor:
         skip = x
         x = self.norm(x)
-        x = self.layers(x)
-        x = self.linear(x)
+
+        # Loop through the S4 layers for each of the H features
+        outputs =[]
+        for i, layer in enumerate(self.s4layers):
+            outputs.append(layer(x[:,:,i]).unsqueeze(-1))
+
+        x = torch.cat(outputs, dim=-1)
         x = self.activation(x)
-        x = self.output(x)
         x = self.dropout(x)
+
+        if self.use_glu:
+            #x = self.glu(torch.cat((self.out1(x), self.out2(x)),dim=-1))
+            x = self.out1(x)*nn.Sigmoid()(self.out2(x)) # a gated linear unit
+        else:
+            x = self.out1(x)
+
         return x + skip
 
-class S4Model(L.LightningModule):
-    def __init__(self, N: int, H:int, L:int, num_blocks:int, cls_out:int):
+class S4Model(lightning.LightningModule):
+    """
+    S4Model: The S4 model consisting of an encoder, a stack of S4 sequences and a classifier.
+    
+    Args:
+        N: int: Size of hidden state space
+        H: int: Number of features
+        L: int: Sequence length
+        num_blocks: int: Number of S4 sequence blocks
+        cls_out: int: Number of classes
+    """
+    def __init__(self,  N: int, H:int, L:int, num_blocks:int, cls_out:int):
         super(S4Model, self).__init__()
         
-        self.enc = nn.Linear(1, H)
+        self.enc = nn.Linear(1,H)
         self.blocks = nn.ModuleList([S4sequence(N, H, L) for _ in range(num_blocks)])
         self.cls = nn.Linear(H, cls_out)
-
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.enc(x)
+        x = self.enc(x.unsqueeze(-1))
         for block in self.blocks:
             x = block(x)
         x = torch.mean(x, dim=1)
         x = self.cls(x)
-        x = nn.Softmax(x)
+        x = nn.Softmax(dim=-1)(x)
         return x
     
     def training_step(self, batch):
         x, y = batch
         y_hat = self(x)
-        loss = nn.CrossEntropyLoss(y_hat, y)
+        loss = nn.CrossEntropyLoss()(y_hat, y)
         return loss
     
     def configure_optimizers(self):
@@ -86,24 +125,21 @@ class S4Model(L.LightningModule):
     def validation_step(self, batch):
         x, y = batch
         y_hat = self(x)
-        loss = nn.CrossEntropyLoss(y_hat, y)
+        loss = nn.CrossEntropyLoss()(y_hat, y)
         return loss
     
 
 if __name__=="main":
     N = 64
     H = 128
-    L = 768
+    L = 784
     num_blocks = 4
     class_out = 10
 
-    train_loader = DataLoader(MNIST(os.path.join(os.getcwd(), "data"),train=True, download=True, transform=transforms.ToTensor()))
-    test_loader = DataLoader(MNIST(os.path.join(os.getcwd(), "data"),train=False, download=True, transform=transforms.ToTensor()))
+    x = torch.randn(1, 1, 784)
 
     model = S4Model(N=N, H=H, L=L, num_blocks=num_blocks, cls_out=class_out)
-    trainer = L.Trainer()
-    trainer.fit(model, train_loader)
-    trainer.test(model, test_loader)
-
+    
+    y = S4Model(x)
 
 
