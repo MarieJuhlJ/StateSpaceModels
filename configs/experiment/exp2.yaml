@@ -1,0 +1,9 @@
+hyperparameters:
+  N: 64
+  H: 1
+  L: 784
+  num_blocks: 4
+  class_out: 10
+  batch_size: 32
+  max_epochs: 5
+  log_every_n_steps: 30
