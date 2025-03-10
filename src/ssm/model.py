@@ -67,7 +67,7 @@ class S4sequence(nn.Module):
         super(S4sequence, self).__init__()
         self.use_glu = glu
 
-        self.norm = nn.LayerNorm((L,H))
+        self.norm = nn.LayerNorm((L,H), elementwise_affine = False, bias = False)
         self.s4layers = nn.ModuleList([S4Layer(N, L) for _ in range(H)])
         #self.layers = torch.vmap(S4Layer, in_dims=1 , out_dims=1)(N, H, L)
         self.activation = nn.GELU() # Perhaps replace with ReLU based on "ReLU strikes back" paper (on LLM tasks)
@@ -93,7 +93,6 @@ class S4sequence(nn.Module):
             x = self.out1(x)*nn.Sigmoid()(self.out2(x)) # a gated linear unit
         else:
             x = self.out1(x)
-
         return x + skip
 
 class S4Model(lightning.LightningModule):
