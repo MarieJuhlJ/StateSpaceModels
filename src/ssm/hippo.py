@@ -35,6 +35,10 @@ def make_DPLR_HiPPO(N):
 
     P = V.conj().T @ (P+0j)
     B = V.conj().T @ (B+0j)
+    
+    # Resolve any unresolved conjugate bits
+    P = P.resolve_conj()
+    B = B.resolve_conj()
     return Lambda_real + 1j * Lambda_imag, P, B, V
 
 
