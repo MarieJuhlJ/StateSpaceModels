@@ -23,20 +23,31 @@ class S4Layer(nn.Module):
         self.N = N
         self.L = L
 
+        # Generate DPLR HiPPO matrices
         Lambda, P, B, _ = make_DPLR_HiPPO(N)
         
-        self.P = nn.Parameter(P)
-        self.B = nn.Parameter(B)
-        self.Lambda = nn.Parameter(Lambda)
+        # Separate real and imaginary parts and register as parameters
+        self.Lambda_real = nn.Parameter(Lambda.real)
+        self.Lambda_imag = nn.Parameter(Lambda.imag)
+        self.P_real = nn.Parameter(P.real)
+        self.P_imag = nn.Parameter(P.imag)
+        self.B_real = nn.Parameter(B.real)
+        self.B_imag = nn.Parameter(B.imag)
 
-        # Define C as a complex number with real and imaginary parts sampled from a normal distribution with mean 0 and std 0.5**0.5
-        self.C_params = torch.randn(N, 2) * 0.5**0.5
-        self.C_tilde = nn.Parameter(self.C_params[:, 0] + 1j * self.C_params[:, 1])
+        # Initialize C
+        self.C_real = nn.Parameter(torch.randn(N) * (0.5**0.5))
+        self.C_imag = nn.Parameter(torch.randn(N) * (0.5**0.5))
 
         self.step_size = 1e-3 # Should this be a learnable parameter?
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        fourier_kernel = fourier_kernel_DPLR(self.Lambda, self.P, self.P, self.B, self.C_tilde, self.step_size, self.L)
+        Lambda = torch.complex(self.Lambda_real, self.Lambda_imag)
+        P = torch.complex(self.P_real, self.P_imag)
+        B = torch.complex(self.B_real, self.B_imag)
+        C_tilde = torch.complex(self.C_real, self.C_imag)
+        #if not (self.Lambda.is_leaf and self.P.is_leaf and self.B.is_leaf and self.C_tilde.is_leaf):
+        #    print("leaf fail")
+        fourier_kernel = fourier_kernel_DPLR(Lambda, P, P, B, C_tilde, self.step_size, self.L)
         fft_u = torch.fft.fft(x, self.L)
         y = torch.fft.ifft(fourier_kernel * fft_u, self.L)
         return y.real
@@ -117,6 +128,9 @@ class S4Model(lightning.LightningModule):
         x, y = batch
         y_hat = self(x)
         loss = nn.CrossEntropyLoss()(y_hat, y)
+        acc = (y == y_hat.argmax(dim=-1)).float().mean()
+        self.log('train_loss', loss, on_epoch=True, on_step=True)
+        self.log('train_acc', acc, on_epoch=True, on_step=True)
         return loss
     
     def configure_optimizers(self):
@@ -126,6 +140,18 @@ class S4Model(lightning.LightningModule):
         x, y = batch
         y_hat = self(x)
         loss = nn.CrossEntropyLoss()(y_hat, y)
+        acc = (y == y_hat.argmax(dim=-1)).float().mean()
+        self.log('val_loss', loss, on_epoch=True, on_step=True)
+        self.log('val_acc', acc, on_epoch=True, on_step=True)
+        return loss
+
+    def test_step(self, batch):
+        x, y = batch
+        y_hat = self(x)
+        loss = nn.CrossEntropyLoss()(y_hat, y)
+        acc = (y == y_hat.argmax(dim=-1)).float().mean()
+        self.log('val_loss', loss, on_epoch=True, on_step=True)
+        self.log('val_acc', acc, on_epoch=True, on_step=True)
         return loss
     
 
