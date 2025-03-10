@@ -8,6 +8,7 @@ from torch.utils.data import DataLoader
 from torchvision.datasets import MNIST
 from torchvision import transforms
 import os
+import time
 
 class S4Layer(nn.Module):
     """
@@ -62,7 +63,7 @@ class S4sequence(nn.Module):
         H: int: Number of features
         L: int: Sequence length
     """
-    def __init__(self, N: int, H: int, L:int, glu:bool=True):
+    def __init__(self, N: int, H: int, L:int, glu:bool=False):
         super(S4sequence, self).__init__()
         self.use_glu = glu
 
@@ -81,11 +82,9 @@ class S4sequence(nn.Module):
         x = self.norm(x)
 
         # Loop through the S4 layers for each of the H features
-        outputs =[]
-        for i, layer in enumerate(self.s4layers):
-            outputs.append(layer(x[:,:,i]).unsqueeze(-1))
+        outputs = [s4.forward(x[..., idx]) for idx, s4 in enumerate(self.s4layers)]
 
-        x = torch.cat(outputs, dim=-1)
+        x = torch.stack(outputs, dim=-1)
         x = self.activation(x)
         x = self.dropout(x)
 
