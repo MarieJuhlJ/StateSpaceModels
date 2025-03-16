@@ -1,2 +1,12 @@
 defaults:
   - experiment: exp1
+
+#Avoid logging
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+  job:
+    chdir: False
+  sweep:
+    dir: .
