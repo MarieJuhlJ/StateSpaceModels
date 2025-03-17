@@ -1,12 +1,12 @@
-name: exp1
+name: conv
 
 hyperparameters:
-  layer_cls: s4
+  layer_cls: conv
   N: 64
-  H: 128
+  H: 1
   L: 784
   num_blocks: 4
   class_out: 10
   batch_size: 32
-  max_epochs: 3
-  log_every_n_steps: 5
+  max_epochs: 5
+  log_every_n_steps: 30

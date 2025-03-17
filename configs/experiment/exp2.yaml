@@ -1,6 +1,7 @@
 name: exp2
 
 hyperparameters:
+  layer_cls: s4
   N: 64
   H: 1
   L: 784

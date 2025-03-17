@@ -1,5 +1,5 @@
 defaults:
-  - experiment: exp1
+  - experiment: conv
 
 #Avoid logging
 hydra:

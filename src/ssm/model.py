@@ -10,6 +10,7 @@ from torchvision import transforms
 import os
 import time
 
+
 class S4Layer(nn.Module):
     """
     S4Layer: A single layer of the S4 model implementing a kernel based on a DPLR HiPPO matrix.
@@ -52,29 +53,51 @@ class S4Layer(nn.Module):
         fft_u = torch.fft.fft(x, self.L)
         y = torch.fft.ifft(fourier_kernel * fft_u, self.L)
         return y.real
-     
+
+class ConvLayer(nn.Module):
+    """
+    ConvLayer: A single layer of implementing a convolutional layer instead of S4 layer.
+    
+    Args:
+        N: int: Kernel length
+        L: int: Sequence length
+    """
+
+    def __init__(self, N: int, L: int):
+        super(ConvLayer, self).__init__()
+        self.N = N
+        self.L = L
+        self.conv = nn.Conv1d(1, 1, N, stride=1, padding='same')
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.conv(x.unsqueeze(1)).squeeze(1)
+
+LAYERS = {
+    "s4": S4Layer,
+    "conv": ConvLayer
+}
+ 
 class S4sequence(nn.Module):
     """
     S4sequence: A sequence block encasing an S4 layer for each feature with normalization, 
     position-wise linear layers and dropout.
 
     Args:
+        layer_cls: str: The layer class to use
         N: int: Size of hidden state space
         H: int: Number of features
         L: int: Sequence length
     """
-    def __init__(self, N: int, H: int, L:int, glu:bool=False):
+    def __init__(self,layer_cls: str, N: int, H: int, L:int, glu:bool=False):
         super(S4sequence, self).__init__()
         self.use_glu = glu
 
         self.norm = nn.LayerNorm((L,H), elementwise_affine = False, bias = False)
-        self.s4layers = nn.ModuleList([S4Layer(N, L) for _ in range(H)])
-        #self.layers = torch.vmap(S4Layer, in_dims=1 , out_dims=1)(N, H, L)
+        self.s4layers = nn.ModuleList([LAYERS[layer_cls](N, L) for _ in range(H)])
         self.activation = nn.GELU() # Perhaps replace with ReLU based on "ReLU strikes back" paper (on LLM tasks)
         self.out1 = nn.Linear(H, H)
         if self.use_glu:
             self.out2 = nn.Linear(H, H)
-            #self.glu = nn.GLU()
         self.dropout = nn.Dropout(0.1)
     
     def forward(self, x:torch.Tensor) -> torch.Tensor:
@@ -89,7 +112,6 @@ class S4sequence(nn.Module):
         x = self.dropout(x)
 
         if self.use_glu:
-            #x = self.glu(torch.cat((self.out1(x), self.out2(x)),dim=-1))
             x = self.out1(x)*nn.Sigmoid()(self.out2(x)) # a gated linear unit
         else:
             x = self.out1(x)
@@ -100,17 +122,18 @@ class S4Model(lightning.LightningModule):
     S4Model: The S4 model consisting of an encoder, a stack of S4 sequences and a classifier.
     
     Args:
+        layer_cls: str: The layer class to use, options: "s4" or "conv"
         N: int: Size of hidden state space
         H: int: Number of features
         L: int: Sequence length
         num_blocks: int: Number of S4 sequence blocks
         cls_out: int: Number of classes
     """
-    def __init__(self,  N: int, H:int, L:int, num_blocks:int, cls_out:int):
+    def __init__(self, layer_cls: str,  N: int, H:int, L:int, num_blocks:int, cls_out:int):
         super(S4Model, self).__init__()
         
         self.enc = nn.Linear(1,H)
-        self.blocks = nn.ModuleList([S4sequence(N, H, L) for _ in range(num_blocks)])
+        self.blocks = nn.ModuleList([S4sequence(layer_cls, N, H, L) for _ in range(num_blocks)])
         self.cls = nn.Linear(H, cls_out)
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
