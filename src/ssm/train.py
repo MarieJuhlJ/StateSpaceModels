@@ -24,7 +24,7 @@ def train(cfg: DictConfig):
     trainer = pl.Trainer(
         accelerator=acc, 
         max_epochs=hp_config.max_epochs, 
-        logger=pl.pytorch.loggers.WandbLogger(name=wandb_name,project="ssm"), 
+        logger=pl.pytorch.loggers.WandbLogger(name=wandb_name, entity="franka-ppo", project="ssm"), 
         callbacks=[checkpoint_callback],
         log_every_n_steps=hp_config.log_every_n_steps)
 
