@@ -16,7 +16,7 @@ def train(cfg: DictConfig):
     val_dataloader = DataLoader(dataset_val, batch_size=hp_config.batch_size, shuffle=False, num_workers=4)
 
     checkpoint_callback = pl.pytorch.callbacks.ModelCheckpoint(dirpath="./models", monitor="val_loss", mode="min")
-    wandb_name = f"N{hp_config.N}-L784-H{hp_config.H}-NumBlocks{hp_config.num_blocks}"
+    wandb_name = f"{cfg.experiment.name}-N{hp_config.N}-L784-H{hp_config.H}-NumBlocks{hp_config.num_blocks}"
     
     trainer = pl.Trainer(
         accelerator="gpu", 

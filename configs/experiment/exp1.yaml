@@ -1,3 +1,5 @@
+name: exp1
+
 hyperparameters:
   N: 64
   H: 128
