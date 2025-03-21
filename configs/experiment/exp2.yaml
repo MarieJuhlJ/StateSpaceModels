@@ -1,7 +1,7 @@
-name: exp2
+name: s4dss
 
 hyperparameters:
-  layer_cls: s4
+  layer_cls: s4dss
   N: 64
   H: 1
   L: 784

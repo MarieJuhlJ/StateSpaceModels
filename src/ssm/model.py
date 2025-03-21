@@ -1,16 +1,12 @@
 from torch import nn
 from ssm.hippo import make_DPLR_HiPPO
-from ssm.kernel import fourier_kernel_DPLR
+from ssm.kernel import s4_kernel, s4dss_kernel
+from ssm.utils import LayerRegistry
 import lightning
 import torch
 from ssm.hippo import make_DPLR_HiPPO
-from torch.utils.data import DataLoader
-from torchvision.datasets import MNIST
-from torchvision import transforms
-import os
-import time
 
-
+@LayerRegistry.register("s4")
 class S4Layer(nn.Module):
     """
     S4Layer: A single layer of the S4 model implementing a kernel based on a DPLR HiPPO matrix.
@@ -41,6 +37,7 @@ class S4Layer(nn.Module):
         self.C_imag = nn.Parameter(torch.randn(N) * (0.5**0.5))
 
         self.step_size = 1e-3 # Should this be a learnable parameter?
+        self.kernel = s4_kernel(L)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         Lambda = torch.complex(self.Lambda_real, self.Lambda_imag)
@@ -49,11 +46,38 @@ class S4Layer(nn.Module):
         C_tilde = torch.complex(self.C_real, self.C_imag)
         #if not (self.Lambda.is_leaf and self.P.is_leaf and self.B.is_leaf and self.C_tilde.is_leaf):
         #    print("leaf fail")
-        fourier_kernel = fourier_kernel_DPLR(Lambda, P, P, B, C_tilde, self.step_size, self.L)
+        fourier_kernel = s4_kernel(Lambda, P, P, B, C_tilde, self.step_size)
         fft_u = torch.fft.fft(x, self.L)
         y = torch.fft.ifft(fourier_kernel * fft_u, self.L)
         return y.real
 
+@LayerRegistry.register("s4dss")
+class S4DSSLayer(nn.Module):
+    def __init__(self, N: int, L: int):
+        super(S4DSSLayer, self).__init__()
+        self.L = L
+
+        Lambda, P, B, _ = make_DPLR_HiPPO(N)
+        self.Lambda_real = nn.Parameter(Lambda.real)
+        self.Lambda_imag = nn.Parameter(Lambda.imag)
+        self.w_real = nn.Parameter(torch.randn(N))
+        self.w_imag = nn.Parameter(torch.randn(N))
+        self.step_size = nn.Parameter(torch.tensor(1e-2))
+        self.kernel = s4dss_kernel(L)
+
+    def forward(self, x: torch.Tensor):
+        Lambda = torch.complex(self.Lambda_real, self.Lambda_imag)
+        w = torch.complex(self.w_real, self.w_imag)
+
+        with torch.no_grad():
+            kernel = self.kernel(Lambda, w, self.step_size)
+
+        fft_kernel = torch.fft.rfft(kernel, self.L)
+        fft_x = torch.fft.rfft(x, self.L)
+
+        return torch.fft.irfft(fft_kernel * fft_x)
+
+@LayerRegistry.register("conv")
 class ConvLayer(nn.Module):
     """
     ConvLayer: A single layer of implementing a convolutional layer instead of S4 layer.
@@ -72,10 +96,6 @@ class ConvLayer(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.conv(x.unsqueeze(1)).squeeze(1)
 
-LAYERS = {
-    "s4": S4Layer,
-    "conv": ConvLayer
-}
  
 class S4sequence(nn.Module):
     """
@@ -93,7 +113,7 @@ class S4sequence(nn.Module):
         self.use_glu = glu
 
         self.norm = nn.LayerNorm((L,H), elementwise_affine = False, bias = False)
-        self.s4layers = nn.ModuleList([LAYERS[layer_cls](N, L) for _ in range(H)])
+        self.s4layers = nn.ModuleList([LayerRegistry.create(layer_cls, N, L) for _ in range(H)])
         self.activation = nn.GELU() # Perhaps replace with ReLU based on "ReLU strikes back" paper (on LLM tasks)
         self.out1 = nn.Linear(H, H)
         if self.use_glu:
@@ -171,12 +191,12 @@ class S4Model(lightning.LightningModule):
         y_hat = self(x)
         loss = nn.CrossEntropyLoss()(y_hat, y)
         acc = (y == y_hat.argmax(dim=-1)).float().mean()
-        self.log('val_loss', loss, on_epoch=True, on_step=True)
-        self.log('val_acc', acc, on_epoch=True, on_step=True)
+        self.log('test_loss', loss, on_epoch=True, on_step=True)
+        self.log('test_acc', acc, on_epoch=True, on_step=True)
         return loss
     
 
-if __name__=="main":
+if __name__=="__main__":
     N = 64
     H = 128
     L = 784
@@ -185,8 +205,8 @@ if __name__=="main":
 
     x = torch.randn(1, 1, 784)
 
-    model = S4Model(N=N, H=H, L=L, num_blocks=num_blocks, cls_out=class_out)
-    
-    y = S4Model(x)
+    # model = S4Model(N=N, H=H, L=L, num_blocks=num_blocks, cls_out=class_out)
+    model  = S4DSSLayer(N, L)
+    y = model(x)
 
 
