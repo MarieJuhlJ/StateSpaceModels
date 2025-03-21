@@ -1,9 +1,9 @@
-name: exp2
+name: s4dds
 
 hyperparameters:
   layer_cls: s4dss
   N: 64
-  H: 1
+  H: 128
   L: 784
   num_blocks: 4
   class_out: 10

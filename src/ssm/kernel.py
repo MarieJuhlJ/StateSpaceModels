@@ -30,7 +30,8 @@ class s4dss_kernel(nn.Module):
     def __init__(self, L: int):
         super(s4dss_kernel, self).__init__()
         self.L = L
-        self.pos = torch.arange(self.L)
+        pos = torch.arange(L)
+        self.register_buffer("pos", pos)
 
     def _reciprocal(self, x, eps=1e-6):
         return x.conj() / (x.real**2 + x.imag**2 + eps)
