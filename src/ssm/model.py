@@ -46,7 +46,8 @@ class S4Layer(nn.Module):
         C_tilde = torch.complex(self.C_real, self.C_imag)
         #if not (self.Lambda.is_leaf and self.P.is_leaf and self.B.is_leaf and self.C_tilde.is_leaf):
         #    print("leaf fail")
-        fourier_kernel = self.kernel(Lambda, P, P, B, C_tilde, self.step_size)
+        with torch.no_grad():
+            fourier_kernel = self.kernel(Lambda, P, P, B, C_tilde, self.step_size)
         fft_u = torch.fft.fft(x, self.L)
         y = torch.fft.ifft(fourier_kernel * fft_u, self.L)
         return y.real
