@@ -36,7 +36,7 @@ class S4Layer(nn.Module):
         self.C_real = nn.Parameter(torch.randn(N) * (0.5**0.5))
         self.C_imag = nn.Parameter(torch.randn(N) * (0.5**0.5))
 
-        self.step_size = 1e-3 # Should this be a learnable parameter?
+        self.step_size = nn.Parameter(torch.tensor(1e-2))
         self.kernel = s4_kernel(L)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
