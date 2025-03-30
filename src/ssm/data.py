@@ -29,6 +29,7 @@ class AudioMNIST(Dataset):
         self.path = path
         self.desitnation = 'train' if train else 'val'
         if not os.path.exists(os.path.join(self.path, "AudioMNIST")):
+            os.makedirs(os.path.join(self.path, "AudioMNIST"), exist_ok=True)
             self._download()
 
         self.wav_files = glob.glob(f"{self.path}/AudioMNIST/data/*/*.wav", recursive=True)
@@ -39,7 +40,7 @@ class AudioMNIST(Dataset):
 
     def _download(self):
         subprocess.run(
-            f"curl -L -o {self.path}/AudioMNIST/.zip https://www.kaggle.com/api/v1/datasets/download/sripaadsrinivasan/audio-mnist && unzip {self.path}/AudioMNIST.zip -d {self.path}/AudioMNIST/",
+            f"curl -L -o {self.path}/AudioMNIST.zip https://www.kaggle.com/api/v1/datasets/download/sripaadsrinivasan/audio-mnist && unzip {self.path}/AudioMNIST.zip -d {self.path}/AudioMNIST/",
             shell=True,
             check=True
         )
