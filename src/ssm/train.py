@@ -1,5 +1,5 @@
 from ssm.model import S4Model
-from ssm.data import SMNIST
+from ssm.data import SMNIST, AudioMNIST
 import lightning as pl
 from torch.utils.data import DataLoader
 import hydra
@@ -11,8 +11,8 @@ def train(cfg: DictConfig):
     hp_config =cfg.experiment.hyperparameters
     model = S4Model(layer_cls=hp_config.layer_cls, N=hp_config.N, H=hp_config.H, L=hp_config.L, num_blocks=hp_config.num_blocks, cls_out=hp_config.class_out)
     
-    dataset_train = SMNIST()
-    dataset_val = SMNIST(train = False)
+    dataset_train = AudioMNIST() # THIS SHOULD BE AN ARGUMENT
+    dataset_val = AudioMNIST(train = False)
     train_dataloader = DataLoader(dataset_train, batch_size=hp_config.batch_size, shuffle=True, num_workers=4)
     val_dataloader = DataLoader(dataset_val, batch_size=hp_config.batch_size, shuffle=False, num_workers=4)
 

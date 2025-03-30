@@ -39,13 +39,35 @@ class S4Layer(nn.Module):
         self.step_size = nn.Parameter(torch.tensor(1e-2))
         self.kernel = s4_kernel(L)
 
+    def forward_recurrence(self, u: torch.Tensor) -> torch.Tensor:
+        #UNDER CONSTRUCTION
+        assert u.shape[0] <= self.L, "Input sequence length exceeds the maximum length L"
+        x_k = torch.zeros(self.L, self.N, dtype=torch.complex64, device=x.device)
+        y_k = torch.zeros(self.L, 1, dtype=torch.complex64, device=x.device)
+        y_k[:u.shape[0], 0] = u
+        D = torch.diag(2/self.step_size - (self.Lambda_real + 1j * self.Lambda_imag))
+        P = torch.complex(self.P_real, self.P_imag).unsqueeze(1)
+        B = torch.complex(self.B_real, self.B_imag)
+        C = 0 # DEFINE THIS
+        Q_star = torch.conj(P).T
+        A0 = torch.diag(torch.ones(self.N)*2/self.step_size) + torch.diag(self.Lambda_real + 1j * self.Lambda_imag) - P @ Q_star
+        A1 = D - D@P * 1/(1+Q_star@D@P) @ Q_star
+        A_bar = A1@A0
+        B_bar = 2 * A1 @ B
+
+        for i in range(self.L-1):
+            x_k[i+1] = A_bar @ x_k[i] + y_k[i] * B_bar
+            if i > self.N-1:
+                y_k[i+1] = C @ x_k[i+1]
+        breakpoint()
+        pass
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         Lambda = torch.complex(self.Lambda_real, self.Lambda_imag)
         P = torch.complex(self.P_real, self.P_imag)
         B = torch.complex(self.B_real, self.B_imag)
         C_tilde = torch.complex(self.C_real, self.C_imag)
-        #if not (self.Lambda.is_leaf and self.P.is_leaf and self.B.is_leaf and self.C_tilde.is_leaf):
-        #    print("leaf fail")
+
         with torch.no_grad():
             fourier_kernel = self.kernel(Lambda, P, P, B, C_tilde, self.step_size)
         fft_u = torch.fft.fft(x, self.L)
@@ -204,10 +226,11 @@ if __name__=="__main__":
     num_blocks = 4
     class_out = 10
 
-    x = torch.randn(1, 1, 784)
-
-    # model = S4Model(N=N, H=H, L=L, num_blocks=num_blocks, cls_out=class_out)
-    model  = S4DSSLayer(N, L)
-    y = model(x)
+    x = torch.randn(1, 784)
+    
+    # model  = S4Model(layer_cls="s4", N=N, H=H, L=L, num_blocks=num_blocks, cls_out=class_out)
+    model = S4Layer(N, L)
+    y = model.forward_recurrence(x)
+    print(y.shape)
 
 

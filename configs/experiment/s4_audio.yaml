@@ -1,0 +1,12 @@
+name: s4_audio
+
+hyperparameters:
+  layer_cls: s4
+  N: 64
+  H: 128
+  L: 14073
+  num_blocks: 4
+  class_out: 10
+  batch_size: 32
+  max_epochs: 5
+  log_every_n_steps: 10
