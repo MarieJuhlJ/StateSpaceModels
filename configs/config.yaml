@@ -2,6 +2,7 @@ defaults:
   - experiment: exp1
   - dataset: smnist
 
+wandb: False
 #Avoid logging
 hydra:
   run:

@@ -2,12 +2,12 @@
 #BSUB -J train
 #BSUB -o logs/train_%J.out
 #BSUB -e logs/train_%J.err
-#BSUB -q gpua100
+#BSUB -q gpuv100
 #BSUB -n 4
 #BSUB -gpu "num=1:mode=exclusive_process"
 #BSUB -R "rusage[mem=4G]"
 #BSUB -R "span[hosts=1]"
-#BSUB -W 1440
+#BSUB -W 120
 ####BSUB -u mariejuhljorgensen@gmail.com
 ####BSUB -B
 ####BSUB -N
@@ -25,4 +25,4 @@ module load cuda/11.6
 source /zhome/e3/b/155491/miniconda3/etc/profile.d/conda.sh
 conda activate ssm
 
-python src/ssm/train.py experiment=origs4
+python src/ssm/train.py experiment=conv dataset=audiomnist

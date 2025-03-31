@@ -1,3 +1,4 @@
+import os
 from ssm.model import S4Model
 from ssm.data import SMNIST, AudioMNIST
 from ssm.utils import DatasetRegistry
@@ -13,7 +14,7 @@ def train(cfg: DictConfig):
     model = S4Model(layer_cls=hp_config.layer_cls, N=hp_config.N, H=hp_config.H, L=hp_config.L, num_blocks=hp_config.num_blocks, cls_out=hp_config.class_out, lr=hp_config.lr, weight_decay=hp_config.weight_decay, dropout=hp_config.dropout)
     
     dataset_train = DatasetRegistry.create(cfg.dataset)
-    dataset_val = DatasetRegistry.create(cfg.dataset.update{"train": False}) 
+    dataset_val = DatasetRegistry.create(cfg.dataset.update({"train": False})) 
     train_dataloader = DataLoader(dataset_train, batch_size=hp_config.batch_size, shuffle=True, num_workers=4)
     val_dataloader = DataLoader(dataset_val, batch_size=hp_config.batch_size, shuffle=False, num_workers=4)
 
@@ -22,10 +23,16 @@ def train(cfg: DictConfig):
     
     acc = "gpu" if cuda.is_available() else "cpu"
 
+    if cfg.wandb:
+        logger = pl.pytorch.loggers.WandbLogger(name=wandb_name, entity="franka-ppo", project="ssm", config=OmegaConf.to_container(cfg.experiment, resolve=True))
+    else:
+        os.makedirs("logs", exist_ok=True)
+        logger = pl.pytorch.loggers.CSVLogger("logs", name=wandb_name)
+
     trainer = pl.Trainer(
         accelerator=acc, 
         max_epochs=hp_config.max_epochs, 
-        logger=pl.pytorch.loggers.WandbLogger(name=wandb_name, entity="franka-ppo", project="ssm", config=OmegaConf.to_container(cfg.experiment, resolve=True)), 
+        logger=logger, 
         callbacks=[checkpoint_callback],
         log_every_n_steps=hp_config.log_every_n_steps)
 
