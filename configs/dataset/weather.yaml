@@ -1,0 +1,4 @@
+name: smnist
+path: "./data"
+train: True
+window_size: 48

@@ -172,28 +172,38 @@ class S4Model(lightning.LightningModule):
         num_blocks: int: Number of S4 sequence blocks
         cls_out: int: Number of classes
     """
-    def __init__(self, layer_cls: str,  N: int, H:int, L:int, num_blocks:int, cls_out:int, lr:float, weight_decay: float, dropout:float):
+    def __init__(self, layer_cls: str,  N: int, H:int, L:int, num_blocks:int, cls_out:int, lr:float, weight_decay: float, dropout:float, forecasting:bool=False, num_features:int=1):
         super(S4Model, self).__init__()
         self.lr = lr
         self.weight_decay = weight_decay
+        self.forecasting = forecasting
 
-        self.enc = nn.Linear(1,H)
+        self.enc = nn.Linear(num_features,H)
         self.blocks = nn.ModuleList([S4sequence(layer_cls, N, H, L, dropout=dropout) for _ in range(num_blocks)])
-        self.cls = nn.Linear(H, cls_out)
+
+        if self.forecasting:
+            self.cls = nn.Linear(H, num_features)
+            self.loss = nn.MSELoss()
+        else:
+            self.cls = nn.Linear(H, cls_out)
+            self.loss = nn.CrossEntropyLoss()
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.enc(x.unsqueeze(-1))
         for block in self.blocks:
             x = block(x)
-        x = torch.mean(x, dim=1)
+
+        if not self.forecasting:
+            x = torch.mean(x, dim=1)
         x = self.cls(x)
-        x = nn.Softmax(dim=-1)(x)
+        if not self.forecasting:
+            x = nn.Softmax(dim=-1)(x)
         return x
     
     def training_step(self, batch):
         x, y = batch
         y_hat = self(x)
-        loss = nn.CrossEntropyLoss()(y_hat, y)
+        loss = self.loss(y_hat, y)
         acc = (y == y_hat.argmax(dim=-1)).float().mean()
         self.log('train_loss', loss, on_epoch=True, on_step=True)
         self.log('train_acc', acc, on_epoch=True, on_step=True)
