@@ -4,6 +4,9 @@ defaults:
   - _self_
 
 wandb: False #Avoid logging to wandb
+k_folds: null #if null no cross-val, else give number of folds
+idx_fold: null
+seed: 42
 
 # Avoid logging to folders
 hydra:
