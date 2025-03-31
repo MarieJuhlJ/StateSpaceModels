@@ -23,7 +23,7 @@ def train(cfg: DictConfig):
     if cfg.get("k_folds", None):
         # Create a split and select appropriate subset of data for this fold:
         kf = KFold(n_splits=cfg.k_folds, shuffle=True, random_state=cfg.seed)
-        train_idx, val_idx = list(kf.split(dataset_train))[cfg.idx_fold]
+        train_idx, val_idx = list(kf.split(dataset_train))[cfg.idx_fold-1]
         print(f"Training fold {cfg.idx_fold + 1}/{cfg.k_folds}")
         dataset_val = Subset(dataset_train, val_idx)
         dataset_train = Subset(dataset_train, train_idx)
@@ -34,7 +34,7 @@ def train(cfg: DictConfig):
     checkpoint_callback = pl.pytorch.callbacks.ModelCheckpoint(dirpath="./models", monitor="val_loss", mode="min")
 
     wandb_name = f"{cfg.experiment.name}-N{hp_config.N}-L784-H{hp_config.H}-NumBlocks{hp_config.num_blocks}"
-    wandb_name += f"-{cfg.idx_fold + 1}-of-{cfg.k_folds}-folds" if cfg.get("k_folds", None) else ""
+    wandb_name += f"-{cfg.idx_fold}-of-{cfg.k_folds}-folds" if cfg.get("k_folds", None) else ""
     
     acc = "gpu" if cuda.is_available() else "cpu"
 
