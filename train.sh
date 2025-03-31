@@ -25,4 +25,4 @@ module load cuda/11.6
 source /zhome/e3/b/155491/miniconda3/etc/profile.d/conda.sh
 conda activate ssm
 
-python src/ssm/train.py experiment=conv dataset=smnist k_folds=5 idx_fold=$LSB_JOBINDEX
+python src/ssm/train.py experiment=conv dataset=smnist k_folds=5 idx_fold=$LSB_JOBINDEX wandb=True
