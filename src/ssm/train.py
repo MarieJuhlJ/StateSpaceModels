@@ -13,8 +13,12 @@ def train(cfg: DictConfig):
     hp_config =cfg.experiment.hyperparameters
     model = S4Model(layer_cls=hp_config.layer_cls, N=hp_config.N, H=hp_config.H, L=hp_config.L, num_blocks=hp_config.num_blocks, cls_out=hp_config.class_out, lr=hp_config.lr, weight_decay=hp_config.weight_decay, dropout=hp_config.dropout)
     
+    #Prepare datasets
+    dataset_cfg = cfg.dataset.copy()  # Make a copy
     dataset_train = DatasetRegistry.create(cfg.dataset)
-    dataset_val = DatasetRegistry.create(cfg.dataset.update({"train": False})) 
+    dataset_cfg.update({"train": False})
+    dataset_val = DatasetRegistry.create(dataset_cfg) 
+
     train_dataloader = DataLoader(dataset_train, batch_size=hp_config.batch_size, shuffle=True, num_workers=4)
     val_dataloader = DataLoader(dataset_val, batch_size=hp_config.batch_size, shuffle=False, num_workers=4)
 

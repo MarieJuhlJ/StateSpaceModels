@@ -1,9 +1,11 @@
 defaults:
   - experiment: exp1
   - dataset: smnist
+  - _self_
 
-wandb: False
-#Avoid logging
+wandb: False #Avoid logging to wandb
+
+# Avoid logging to folders
 hydra:
   run:
     dir: .
