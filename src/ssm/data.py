@@ -6,15 +6,18 @@ import os
 import subprocess
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
+from omegaconf import DictConfig
+from ssm.utils import DatasetRegistry
 
+@DatasetRegistry.register("smnist")
 class SMNIST(Dataset):
-    def __init__(self, train: bool = True):
+    def __init__(self, cfg: DictConfig):
         super().__init__()
         self.transform = transforms.Compose([
             transforms.ToTensor(),
             transforms.Normalize((0.5,), (0.5,))
         ])
-        self.dataset = datasets.MNIST(root='./data', train=train, download=True, transform=self.transform)
+        self.dataset = datasets.MNIST(root=cfg.path, train=cfg.train, download=True, transform=self.transform)
     
     def __len__(self):
         return len(self.dataset)
@@ -23,11 +26,12 @@ class SMNIST(Dataset):
         img, label = self.dataset[idx]
         return img.flatten(), label
 
+@DatasetRegistry.register("audiomnist")
 class AudioMNIST(Dataset):
-    def __init__(self, path: str = "data", train: bool = True):
+    def __init__(self, cfg: DictConfig):
         super().__init__()
-        self.path = path
-        self.desitnation = 'train' if train else 'val'
+        self.path = cfg.path
+        self.destination = 'train' if cfg.train else 'val'
         if not os.path.exists(os.path.join(self.path, "AudioMNIST")):
             os.makedirs(os.path.join(self.path, "AudioMNIST"), exist_ok=True)
             self._download()
@@ -46,13 +50,13 @@ class AudioMNIST(Dataset):
         )
 
     def __len__(self):
-        if self.desitnation == 'train':
+        if self.destination == 'train':
             return len(self.wav_files_train)
         else:
             return len(self.wav_files_val)
 
     def __getitem__(self, idx):
-        if self.desitnation == 'train':
+        if self.destination == 'train':
             wav_path = self.wav_files_train[idx]
         else:
             wav_path = self.wav_files_val[idx]
