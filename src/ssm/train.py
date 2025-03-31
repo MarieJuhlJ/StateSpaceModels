@@ -34,7 +34,7 @@ def train(cfg: DictConfig):
     checkpoint_callback = pl.pytorch.callbacks.ModelCheckpoint(dirpath="./models", monitor="val_loss", mode="min")
 
     wandb_name = f"{cfg.experiment.name}-N{hp_config.N}-L784-H{hp_config.H}-NumBlocks{hp_config.num_blocks}"
-    wandb_name += f"{cfg.idx_fold + 1}-of-{cfg.k_folds}-folds" if cfg.get("k_folds", None) else ""
+    wandb_name += f"-{cfg.idx_fold + 1}-of-{cfg.k_folds}-folds" if cfg.get("k_folds", None) else ""
     
     acc = "gpu" if cuda.is_available() else "cpu"
 
