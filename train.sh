@@ -1,8 +1,8 @@
 #!/bin/sh
-#BSUB -J train2
+#BSUB -J train
 #BSUB -o logs/train_%J.out
 #BSUB -e logs/train_%J.err
-#BSUB -q gpuv100
+#BSUB -q gpua100
 #BSUB -n 4
 #BSUB -gpu "num=1:mode=exclusive_process"
 #BSUB -R "rusage[mem=4G]"
@@ -25,4 +25,4 @@ module load cuda/11.6
 source /zhome/e3/b/155491/miniconda3/etc/profile.d/conda.sh
 conda activate ssm
 
-python src/ssm/train.py experiment=exp1 experiment.hyperparameters.num_blocks=2
+python src/ssm/train.py experiment=origs4

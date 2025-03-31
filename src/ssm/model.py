@@ -88,7 +88,7 @@ class S4sequence(nn.Module):
         H: int: Number of features
         L: int: Sequence length
     """
-    def __init__(self,layer_cls: str, N: int, H: int, L:int, glu:bool=False):
+    def __init__(self,layer_cls: str, N: int, H: int, L:int, glu:bool=False, dropout: float=0.1):
         super(S4sequence, self).__init__()
         self.use_glu = glu
 
@@ -98,7 +98,7 @@ class S4sequence(nn.Module):
         self.out1 = nn.Linear(H, H)
         if self.use_glu:
             self.out2 = nn.Linear(H, H)
-        self.dropout = nn.Dropout(0.1)
+        self.dropout = nn.Dropout(dropout)
     
     def forward(self, x:torch.Tensor) -> torch.Tensor:
         skip = x
@@ -129,11 +129,13 @@ class S4Model(lightning.LightningModule):
         num_blocks: int: Number of S4 sequence blocks
         cls_out: int: Number of classes
     """
-    def __init__(self, layer_cls: str,  N: int, H:int, L:int, num_blocks:int, cls_out:int):
+    def __init__(self, layer_cls: str,  N: int, H:int, L:int, num_blocks:int, cls_out:int, lr:float, weight_decay: float, dropout:float):
         super(S4Model, self).__init__()
-        
+        self.lr = lr
+        self.weight_decay = weight_decay
+
         self.enc = nn.Linear(1,H)
-        self.blocks = nn.ModuleList([S4sequence(layer_cls, N, H, L) for _ in range(num_blocks)])
+        self.blocks = nn.ModuleList([S4sequence(layer_cls, N, H, L, dropout=dropout) for _ in range(num_blocks)])
         self.cls = nn.Linear(H, cls_out)
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -155,7 +157,7 @@ class S4Model(lightning.LightningModule):
         return loss
     
     def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=1e-3)
+        return torch.optim.Adam(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
     
     def validation_step(self, batch):
         x, y = batch
