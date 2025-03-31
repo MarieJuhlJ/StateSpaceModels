@@ -3,7 +3,7 @@ from ssm.model import S4Model
 from ssm.data import SMNIST, AudioMNIST
 from ssm.utils import DatasetRegistry
 import lightning as pl
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
 import hydra
 from omegaconf import DictConfig, OmegaConf
 import torch.cuda as cuda
@@ -23,7 +23,7 @@ def train(cfg: DictConfig):
     if cfg.get("k_folds", None):
         # Create a split and select appropriate subset of data for this fold:
         kf = KFold(n_splits=cfg.k_folds, shuffle=True, random_state=cfg.seed)
-        train_idx, val_idx = kf.split(dataset_train)[cfg.idx_fold]
+        train_idx, val_idx = list(kf.split(dataset_train))[cfg.idx_fold]
         print(f"Training fold {cfg.idx_fold + 1}/{cfg.k_folds}")
         dataset_val = Subset(dataset_train, val_idx)
         dataset_train = Subset(dataset_train, train_idx)
