@@ -29,3 +29,9 @@ class DatasetRegistry:
         if cfg.name not in cls._registry:
             raise ValueError(f"Unknown layer type: {cfg.name}")
         return cls._registry[cfg.name](cfg)
+
+def get_train_val_dataset(cfg):
+    train = DatasetRegistry.create(cfg)
+    cfg.update({"train": False})
+    val = DatasetRegistry.create(cfg)
+    return train, val

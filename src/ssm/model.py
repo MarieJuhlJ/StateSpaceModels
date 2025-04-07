@@ -177,6 +177,7 @@ class S4Model(lightning.LightningModule):
         self.lr = lr
         self.weight_decay = weight_decay
         self.forecasting = forecasting
+        self.num_features = num_features
 
         self.enc = nn.Linear(num_features,H)
         self.blocks = nn.ModuleList([S4sequence(layer_cls, N, H, L, dropout=dropout) for _ in range(num_blocks)])
@@ -189,7 +190,9 @@ class S4Model(lightning.LightningModule):
             self.loss = nn.CrossEntropyLoss()
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.enc(x.unsqueeze(-1))
+        if x.shape[-1] != self.num_features:
+            x = x.unsqueeze(-1)
+        x = self.enc(x)
         for block in self.blocks:
             x = block(x)
 
@@ -204,9 +207,11 @@ class S4Model(lightning.LightningModule):
         x, y = batch
         y_hat = self(x)
         loss = self.loss(y_hat, y)
-        acc = (y == y_hat.argmax(dim=-1)).float().mean()
         self.log('train_loss', loss, on_epoch=True, on_step=True)
-        self.log('train_acc', acc, on_epoch=True, on_step=True)
+        if not self.forecasting:
+            self.log('train_acc', acc, on_epoch=True, on_step=True)
+            acc = (y == y_hat.argmax(dim=-1)).float().mean()
+
         return loss
     
     def configure_optimizers(self):
@@ -215,19 +220,23 @@ class S4Model(lightning.LightningModule):
     def validation_step(self, batch):
         x, y = batch
         y_hat = self(x)
-        loss = nn.CrossEntropyLoss()(y_hat, y)
-        acc = (y == y_hat.argmax(dim=-1)).float().mean()
+        loss = self.loss(y_hat, y)
         self.log('val_loss', loss, on_epoch=True, on_step=True)
-        self.log('val_acc', acc, on_epoch=True, on_step=True)
+        if not self.forecasting:
+            self.log('val_acc', acc, on_epoch=True, on_step=True)
+            acc = (y == y_hat.argmax(dim=-1)).float().mean()
+
         return loss
 
     def test_step(self, batch):
         x, y = batch
         y_hat = self(x)
-        loss = nn.CrossEntropyLoss()(y_hat, y)
-        acc = (y == y_hat.argmax(dim=-1)).float().mean()
+        loss = self.loss(y_hat, y)
         self.log('test_loss', loss, on_epoch=True, on_step=True)
-        self.log('test_acc', acc, on_epoch=True, on_step=True)
+        if not self.forecasting:
+            acc = (y == y_hat.argmax(dim=-1)).float().mean()
+            self.log('test_acc', acc, on_epoch=True, on_step=True)
+        
         return loss
     
 

@@ -99,7 +99,6 @@ class WeatherDataset(Dataset):
             data = torch.tensor(self.test_data[idx:idx + self.window_size])
         
         x, y  = torch.zeros(self.window_size, self.num_features), torch.zeros(self.window_size, self.num_features)
-        breakpoint()
         x[:self.mask_idx] = data[:self.mask_idx]
         y[self.mask_idx:] = data[self.mask_idx:]
         return torch.tensor(x), torch.tensor(y) #(L, D), (L, D

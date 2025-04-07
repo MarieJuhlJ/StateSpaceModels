@@ -1,4 +1,4 @@
-name: smnist
+name: weather
 path: "./data"
 train: True
-window_size: 48
+window_size: 96
