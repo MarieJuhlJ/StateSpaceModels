@@ -4,7 +4,10 @@ from ssm.kernel import s4_kernel, s4dss_kernel
 from ssm.utils import LayerRegistry
 import lightning
 import torch
+from einops import rearrange, repeat
+import math
 from ssm.hippo import make_DPLR_HiPPO
+from ssm.ops.selective_scan_interface import selective_scan_fn
 
 @LayerRegistry.register("s4")
 class S4Layer(nn.Module):
@@ -239,6 +242,86 @@ class S4Model(lightning.LightningModule):
         
         return loss
     
+class S6Layer(nn.Module):
+    """
+    S6Layer: A single layer of the S6 model implementing a kernel based on a DPLR HiPPO matrix.
+    
+    Args:
+        N: int: Size of hidden state space
+        L: int: Sequence length
+    """
+    def __init__(
+            self,
+        d_model=None,
+        d_state=16,
+        d_conv=4,
+        expand=2,
+        dt_rank="auto",
+        dt_min=0.001,
+        dt_max=0.1,
+        dt_init="random",
+        dt_scale=1.0,
+        dt_init_floor=1e-4,
+        conv_bias=True,
+        bias=False,
+        use_fast_path=True,  # Fused kernel options
+        layer_idx=None,
+        device=None,
+        dtype=None,
+    ):
+        factory_kwargs = {"device": device, "dtype": dtype}
+        super(S6Layer, self).__init__()
+        self.d_model = d_model
+        self.d_state = d_state
+        self.d_conv = d_conv
+        self.dt_rank = math.ceil(self.d_model / 16) if dt_rank == "auto" else dt_rank
+        self.use_fast_path = use_fast_path
+        self.layer_idx = layer_idx
+        self.conv1d = nn.Conv1d(
+            in_channels=self.d_inner,
+            out_channels=self.d_inner,
+            bias=conv_bias,
+            kernel_size=d_conv,
+            groups=self.d_inner,
+            padding=d_conv - 1,
+            **factory_kwargs,
+        )
+        self.x_proj = nn.Linear(
+            self.d_inner, self.dt_rank + self.d_state * 2, bias=False, **factory_kwargs
+        )
+        self.dt_proj = nn.Linear(self.dt_rank, self.d_inner, bias=True, **factory_kwargs)
+
+        A = repeat(
+            torch.arange(1, self.d_state + 1, dtype=torch.float32, device=device),
+            "n -> d n",
+            d=self.d_inner,
+        ).contiguous()
+        A_log = torch.log(A)  # Keep A_log in fp32
+        self.A_log = nn.Parameter(A_log)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        Batch, seqlen, _ = x.shape #(b l d)
+        x_dbl = self.x_proj(rearrange(x, "b d l -> (b l) d"))  # (bl d)
+        dt, B, C = torch.split(x_dbl, [self.dt_rank, self.d_state, self.d_state], dim=-1)
+        dt = self.dt_proj.weight @ dt.t()
+        dt = rearrange(dt, "d (b l) -> b d l", l=seqlen)
+        B = rearrange(B, "(b l) dstate -> b dstate l", l=seqlen).contiguous()
+        C = rearrange(C, "(b l) dstate -> b dstate l", l=seqlen).contiguous()
+        A = -torch.exp(self.A_log.float())  # (d_inner, d_state)
+        y = selective_scan_fn(
+                x,
+                dt,
+                A,
+                B,
+                C,
+                self.D.float(),
+                z=None,
+                delta_bias=self.dt_proj.bias.float(),
+                delta_softplus=True,
+                return_last_state=False,
+            )
+        y = rearrange(y, "b d l -> b l d")
+        return y
 
 if __name__=="__main__":
     N = 64
