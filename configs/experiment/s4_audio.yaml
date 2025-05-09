@@ -5,6 +5,7 @@ hyperparameters:
   N: 64
   H: 128
   L: 14073
+  num_features: 1
   num_blocks: 4
   class_out: 10
   batch_size: 32

@@ -199,6 +199,7 @@ class S4Model(lightning.LightningModule):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if x.shape[-1] != self.num_features:
             x = x.unsqueeze(-1)
+        breakpoint()
         x = self.enc(x)
         for block in self.blocks:
             x = block(x)

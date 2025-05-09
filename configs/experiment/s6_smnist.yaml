@@ -1,16 +1,16 @@
-name: s6_weather
+name: s6_smnist
 
 hyperparameters:
   layer_cls: s6
   N: 64
-  H: 256
-  L: 96
-  num_features: 12
+  H: 128
+  L: 784
+  num_features: 1
   num_blocks: 4
-  class_out: 1
+  class_out: 10
   batch_size: 32
   max_epochs: 50
   log_every_n_steps: 10
-  lr: 0.01
+  lr: 0.001
   weight_decay: 0.01
   dropout: 0.25
