@@ -183,7 +183,11 @@ class S4Model(lightning.LightningModule):
         self.num_features = num_features
 
         self.enc = nn.Linear(num_features,H)
-        self.blocks = nn.ModuleList([S4sequence(layer_cls, N, H, L, dropout=dropout) for _ in range(num_blocks)])
+
+        if layer_cls in ["s4", "s4dss", "conv"]:
+            self.blocks = nn.ModuleList([S4sequence(layer_cls, N, H, L, dropout=dropout) for _ in range(num_blocks)])
+        elif layer_cls in ["s6", "s6_sequential"]:
+            self.blocks = nn.ModuleList([MambaBlock(layer_cls, N, H, L, dropout=dropout) for _ in range(num_blocks)])
 
         if self.forecasting:
             self.cls = nn.Linear(H, num_features)
@@ -241,7 +245,53 @@ class S4Model(lightning.LightningModule):
             self.log('test_acc', acc, on_epoch=True, on_step=True)
         
         return loss
-    
+
+class MambaBlock(nn.Module):
+    """
+    To come
+    """
+    def __init__(self, layer_cls: str, N: int, H:int, L:int, dropout:float=0.1):
+        super(MambaBlock, self).__init__()
+        self.layer_cls = layer_cls
+        self.N = N
+        self.H = H
+        self.L = L
+        self.up_proj_x = nn.Linear(H, 2*H)
+        self.up_proj_z = nn.Linear(H, 2*H)
+        self.down_proj = nn.Linear(2*H, H)
+        self.s6 = LayerRegistry.create(layer_cls, 2*H, N)
+        self.conv1d = nn.Conv1d(2*H, 2*H, kernel_size=3, padding='same')
+        self.sigmoid = nn.Sigmoid()
+        self.norm = nn.LayerNorm((L, 2*H), elementwise_affine=False, bias=False)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Expects x to be of shape (B, L, D)
+        """
+
+        z = self.up_proj_z(x)
+        z = self.norm(z)
+        z = self.sigmoid(z)
+        z = self.dropout(z)
+
+        x = self.up_proj_x(x)
+        x = self.norm(x)
+        x = self.conv1d(rearrange(x, "b l d -> b d l"))
+        x = self.sigmoid(x)
+        x = self.dropout(x)
+
+        x = self.s6(x)
+        x = self.dropout(x)
+
+        x = x * z
+        x = self.down_proj(x)
+        x = self.dropout(x)
+
+        return x
+
+
+@LayerRegistry.register("s6")
 class S6Layer(nn.Module):
     """
     S6Layer: A single layer of the S6 model implementing a kernel based on a DPLR HiPPO matrix.
@@ -254,8 +304,6 @@ class S6Layer(nn.Module):
             self,
         d_model=None,
         d_state=16,
-        d_conv=4,
-        expand=2,
         dt_rank="auto",
         dt_min=0.001,
         dt_max=0.1,
@@ -273,41 +321,44 @@ class S6Layer(nn.Module):
         super(S6Layer, self).__init__()
         self.d_model = d_model
         self.d_state = d_state
-        self.d_conv = d_conv
         self.dt_rank = math.ceil(self.d_model / 16) if dt_rank == "auto" else dt_rank
         self.use_fast_path = use_fast_path
         self.layer_idx = layer_idx
-        self.conv1d = nn.Conv1d(
-            in_channels=self.d_inner,
-            out_channels=self.d_inner,
-            bias=conv_bias,
-            kernel_size=d_conv,
-            groups=self.d_inner,
-            padding=d_conv - 1,
-            **factory_kwargs,
-        )
         self.x_proj = nn.Linear(
-            self.d_inner, self.dt_rank + self.d_state * 2, bias=False, **factory_kwargs
+            self.d_model, self.dt_rank + self.d_state * 2, bias=False, **factory_kwargs
         )
-        self.dt_proj = nn.Linear(self.dt_rank, self.d_inner, bias=True, **factory_kwargs)
+        self.dt_proj = nn.Linear(self.dt_rank, self.d_model, bias=True, **factory_kwargs)
+        # Initialize dt bias so that F.softplus(dt_bias) is between dt_min and dt_max
+        dt = torch.exp(
+            torch.rand(self.d_model, **factory_kwargs) * (math.log(dt_max) - math.log(dt_min))
+            + math.log(dt_min)
+        ).clamp(min=dt_init_floor)
+        # Inverse of softplus: https://github.com/pytorch/pytorch/issues/72759
+        inv_dt = dt + torch.log(-torch.expm1(-dt))
+        with torch.no_grad():
+            self.dt_proj.bias.copy_(inv_dt)
+        # Our initialization would set all Linear.bias to zero, need to mark this one as _no_reinit
+        self.dt_proj.bias._no_reinit = True
 
         A = repeat(
             torch.arange(1, self.d_state + 1, dtype=torch.float32, device=device),
             "n -> d n",
-            d=self.d_inner,
+            d=self.d_model,
         ).contiguous()
         A_log = torch.log(A)  # Keep A_log in fp32
         self.A_log = nn.Parameter(A_log)
 
+        self.D = nn.Parameter(torch.ones(self.d_model, device=device))
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        Batch, seqlen, _ = x.shape #(b l d)
+        Batch, _, seqlen = x.shape #(b d l)
         x_dbl = self.x_proj(rearrange(x, "b d l -> (b l) d"))  # (bl d)
         dt, B, C = torch.split(x_dbl, [self.dt_rank, self.d_state, self.d_state], dim=-1)
         dt = self.dt_proj.weight @ dt.t()
         dt = rearrange(dt, "d (b l) -> b d l", l=seqlen)
         B = rearrange(B, "(b l) dstate -> b dstate l", l=seqlen).contiguous()
         C = rearrange(C, "(b l) dstate -> b dstate l", l=seqlen).contiguous()
-        A = -torch.exp(self.A_log.float())  # (d_inner, d_state)
+        A = -torch.exp(self.A_log.float())
         y = selective_scan_fn(
                 x,
                 dt,
@@ -329,12 +380,16 @@ if __name__=="__main__":
     L = 784
     num_blocks = 4
     class_out = 10
-
-    x = torch.randn(1, 784)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    x = torch.randn(1, 784, H) #B L D
     
     # model  = S4Model(layer_cls="s4", N=N, H=H, L=L, num_blocks=num_blocks, cls_out=class_out)
-    model = S4Layer(N, L)
-    y = model.forward_recurrence(x)
+    mamba = MambaBlock(layer_cls="s6", N=N, H=H, L=L)
+    mamba.to(device)
+    y = mamba(x.to(device))
+    # s6 = S6Layer(d_model=H, d_state=N, dt_rank="auto", dt_min=0.001, dt_max=0.1, dt_init="random", dt_scale=1.0, dt_init_floor=1e-4, conv_bias=True, bias=False, use_fast_path=True)
+    # s6.to(device)
+    # y = s6(x.to(device))
     print(y.shape)
 
 
