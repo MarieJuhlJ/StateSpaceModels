@@ -199,7 +199,6 @@ class S4Model(lightning.LightningModule):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if x.shape[-1] != self.num_features:
             x = x.unsqueeze(-1)
-        breakpoint()
         x = self.enc(x)
         for block in self.blocks:
             x = block(x)
@@ -217,8 +216,9 @@ class S4Model(lightning.LightningModule):
         loss = self.loss(y_hat, y)
         self.log('train_loss', loss, on_epoch=True, on_step=True)
         if not self.forecasting:
-            self.log('train_acc', acc, on_epoch=True, on_step=True)
             acc = (y == y_hat.argmax(dim=-1)).float().mean()
+            self.log('train_acc', acc, on_epoch=True, on_step=True)
+            
 
         return loss
     
@@ -231,8 +231,9 @@ class S4Model(lightning.LightningModule):
         loss = self.loss(y_hat, y)
         self.log('val_loss', loss, on_epoch=True, on_step=True)
         if not self.forecasting:
-            self.log('val_acc', acc, on_epoch=True, on_step=True)
             acc = (y == y_hat.argmax(dim=-1)).float().mean()
+            self.log('val_acc', acc, on_epoch=True, on_step=True)
+            
 
         return loss
 

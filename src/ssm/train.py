@@ -11,7 +11,7 @@ import torch.cuda as cuda
 @hydra.main(config_name="config.yaml", config_path="../../configs")
 def train(cfg: DictConfig):
     hp_config =cfg.experiment.hyperparameters
-    model = S4Model(layer_cls=hp_config.layer_cls, N=hp_config.N, H=hp_config.H, L=hp_config.L, num_blocks=hp_config.num_blocks, cls_out=hp_config.class_out, lr=hp_config.lr, weight_decay=hp_config.weight_decay, dropout=hp_config.dropout, forecasting=True, num_features=hp_config.num_features)
+    model = S4Model(layer_cls=hp_config.layer_cls, N=hp_config.N, H=hp_config.H, L=hp_config.L, num_blocks=hp_config.num_blocks, cls_out=hp_config.class_out, lr=hp_config.lr, weight_decay=hp_config.weight_decay, dropout=hp_config.dropout, forecasting=hp_config.forecasting, num_features=hp_config.num_features)
 
     dataset_train, dataset_val = get_train_val_dataset(cfg.dataset)
     train_dataloader = DataLoader(dataset_train, batch_size=hp_config.batch_size, shuffle=True, num_workers=4)

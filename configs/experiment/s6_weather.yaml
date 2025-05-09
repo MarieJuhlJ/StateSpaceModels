@@ -6,6 +6,7 @@ hyperparameters:
   H: 256
   L: 96
   num_features: 12
+  forecasting: True
   num_blocks: 4
   class_out: 1
   batch_size: 32
