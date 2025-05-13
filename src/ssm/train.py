@@ -3,10 +3,11 @@ from ssm.model import S4Model
 from ssm.data import SMNIST, AudioMNIST, WeatherDataset
 from ssm.utils import get_train_val_dataset
 import lightning as pl
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
 import hydra
 from omegaconf import DictConfig, OmegaConf
 import torch.cuda as cuda
+from sklearn.model_selection import KFold
 
 @hydra.main(config_name="config.yaml", config_path="../../configs")
 def train(cfg: DictConfig):
@@ -18,7 +19,9 @@ def train(cfg: DictConfig):
     val_dataloader = DataLoader(dataset_val, batch_size=hp_config.batch_size, shuffle=False, num_workers=4)
 
     checkpoint_callback = pl.pytorch.callbacks.ModelCheckpoint(dirpath="./models", monitor="val_loss", mode="min")
+
     wandb_name = f"{cfg.experiment.name}-N{hp_config.N}-L784-H{hp_config.H}-NumBlocks{hp_config.num_blocks}"
+    wandb_name += f"-{cfg.idx_fold}-of-{cfg.k_folds}-folds" if cfg.get("k_folds", None) else ""
     
     acc = "gpu" if cuda.is_available() else "cpu"
 
