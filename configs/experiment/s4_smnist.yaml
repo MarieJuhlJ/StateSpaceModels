@@ -1,13 +1,13 @@
-name: s6_smnist
+name: s4_smnist
 
 hyperparameters:
-  layer_cls: s6
+  layer_cls: s4
   N: 64
   H: 128
   L: 784
   num_features: 1
   forecasting: False
-  num_blocks: 2
+  num_blocks: 4
   class_out: 10
   batch_size: 32
   max_epochs: 50

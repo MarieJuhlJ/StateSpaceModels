@@ -139,7 +139,10 @@ class S4sequence(nn.Module):
         self.use_glu = glu
 
         self.norm = nn.LayerNorm((L,H), elementwise_affine = False, bias = False)
-        self.s4layers = nn.ModuleList([LayerRegistry.create(layer_cls, N, L) for _ in range(H)])
+        if layer_cls != "s6":
+            self.ssm = nn.ModuleList([LayerRegistry.create(layer_cls, N, L) for _ in range(H)])
+        else:
+            self.ssm = S6Layer(d_model=H, d_state=N)
         self.activation = nn.GELU() # Perhaps replace with ReLU based on "ReLU strikes back" paper (on LLM tasks)
         self.out1 = nn.Linear(H, H)
         if self.use_glu:
@@ -150,15 +153,17 @@ class S4sequence(nn.Module):
         skip = x
         x = self.norm(x)
 
-        # Loop through the S4 layers for each of the H features
-        outputs = [s4.forward(x[..., idx]) for idx, s4 in enumerate(self.s4layers)]
+        if isinstance(self.ssm, nn.ModuleList):
+            outputs = [s4.forward(x[..., idx]) for idx, s4 in enumerate(self.ssm)]
+            x = torch.stack(outputs, dim=-1)
+        else:
+            x = self.ssm(rearrange(x, "b l d -> b d l"))
 
-        x = torch.stack(outputs, dim=-1)
         x = self.activation(x)
         x = self.dropout(x)
 
         if self.use_glu:
-            x = self.out1(x)*nn.Sigmoid()(self.out2(x)) # a gated linear unit
+            x = self.out1(x)*nn.activation()(self.out2(x)) # a gated linear unit
         else:
             x = self.out1(x)
         return x + skip
@@ -184,10 +189,7 @@ class S4Model(lightning.LightningModule):
 
         self.enc = nn.Linear(num_features,H)
 
-        if layer_cls in ["s4", "s4dss", "conv"]:
-            self.blocks = nn.ModuleList([S4sequence(layer_cls, N, H, L, dropout=dropout) for _ in range(num_blocks)])
-        elif layer_cls in ["s6", "s6_sequential"]:
-            self.blocks = nn.ModuleList([MambaBlock(layer_cls, N, H, L, dropout=dropout) for _ in range(num_blocks)])
+        self.blocks = nn.ModuleList([S4sequence(layer_cls, N, H, L, dropout=dropout) for _ in range(num_blocks)])
 
         if self.forecasting:
             self.cls = nn.Linear(H, num_features)
@@ -218,10 +220,9 @@ class S4Model(lightning.LightningModule):
         if not self.forecasting:
             acc = (y == y_hat.argmax(dim=-1)).float().mean()
             self.log('train_acc', acc, on_epoch=True, on_step=True)
-            
 
         return loss
-    
+
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
     
@@ -233,8 +234,7 @@ class S4Model(lightning.LightningModule):
         if not self.forecasting:
             acc = (y == y_hat.argmax(dim=-1)).float().mean()
             self.log('val_acc', acc, on_epoch=True, on_step=True)
-            
-
+        print(f"val_loss: {loss}, val_acc: {acc}")
         return loss
 
     def test_step(self, batch):
@@ -248,51 +248,6 @@ class S4Model(lightning.LightningModule):
         
         return loss
 
-class MambaBlock(nn.Module):
-    """
-    To come
-    """
-    def __init__(self, layer_cls: str, N: int, H:int, L:int, dropout:float=0.1):
-        super(MambaBlock, self).__init__()
-        self.layer_cls = layer_cls
-        self.N = N
-        self.H = H
-        self.L = L
-        self.up_proj_x = nn.Linear(H, 2*H)
-        self.up_proj_z = nn.Linear(H, 2*H)
-        self.down_proj = nn.Linear(2*H, H)
-        self.s6 = LayerRegistry.create(layer_cls, 2*H, N)
-        self.conv1d = nn.Conv1d(2*H, 2*H, kernel_size=3, padding='same')
-        self.sigmoid = nn.Sigmoid()
-        self.norm = nn.LayerNorm((L, 2*H), elementwise_affine=False, bias=False)
-        self.dropout = nn.Dropout(dropout)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Expects x to be of shape (B, L, D)
-        """
-
-        z = self.up_proj_z(x)
-        z = self.norm(z)
-        z = self.sigmoid(z)
-        z = self.dropout(z)
-
-        x = self.up_proj_x(x)
-        x = self.norm(x)
-        x = self.conv1d(rearrange(x, "b l d -> b d l"))
-        x = self.sigmoid(x)
-        x = self.dropout(x)
-
-        x = self.s6(x)
-        x = self.dropout(x)
-
-        x = x * z
-        x = self.down_proj(x)
-        x = self.dropout(x)
-
-        return x
-
-
 @LayerRegistry.register("s6")
 class S6Layer(nn.Module):
     """
@@ -300,7 +255,7 @@ class S6Layer(nn.Module):
     
     Args:
         N: int: Size of hidden state space
-        L: int: Sequence length
+        L: int: Sequence
     """
     def __init__(
             self,
@@ -311,8 +266,7 @@ class S6Layer(nn.Module):
         dt_max=0.1,
         dt_init="random",
         dt_scale=1.0,
-        dt_init_floor=1e-4,
-        conv_bias=True,
+        dt_init_floor=1e-3,
         bias=False,
         use_fast_path=True,  # Fused kernel options
         layer_idx=None,
@@ -384,14 +338,3 @@ if __name__=="__main__":
     class_out = 10
     device = "cuda" if torch.cuda.is_available() else "cpu"
     x = torch.randn(1, 784, H) #B L D
-    
-    # model  = S4Model(layer_cls="s4", N=N, H=H, L=L, num_blocks=num_blocks, cls_out=class_out)
-    mamba = MambaBlock(layer_cls="s6", N=N, H=H, L=L)
-    mamba.to(device)
-    y = mamba(x.to(device))
-    # s6 = S6Layer(d_model=H, d_state=N, dt_rank="auto", dt_min=0.001, dt_max=0.1, dt_init="random", dt_scale=1.0, dt_init_floor=1e-4, conv_bias=True, bias=False, use_fast_path=True)
-    # s6.to(device)
-    # y = s6(x.to(device))
-    print(y.shape)
-
-
