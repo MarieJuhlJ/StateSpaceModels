@@ -8,6 +8,7 @@ from einops import rearrange, repeat
 import math
 from ssm.hippo import make_DPLR_HiPPO
 from ssm.ops.selective_scan_interface import selective_scan_fn
+from ssm.parallel_scan import parallel_scan_naive
 
 @LayerRegistry.register("s4")
 class S4Layer(nn.Module):
@@ -139,10 +140,11 @@ class S4sequence(nn.Module):
         self.use_glu = glu
 
         self.norm = nn.LayerNorm((L,H), elementwise_affine = False, bias = False)
-        if layer_cls != "s6":
+
+        if layer_cls != "s6" and layer_cls != "s6_naive":
             self.ssm = nn.ModuleList([LayerRegistry.create(layer_cls, N, L) for _ in range(H)])
         else:
-            self.ssm = S6Layer(d_model=H, d_state=N)
+            self.ssm = LayerRegistry.create(layer_cls, H, N)
         self.activation = nn.GELU() # Perhaps replace with ReLU based on "ReLU strikes back" paper (on LLM tasks)
         self.out1 = nn.Linear(H, H)
         if self.use_glu:
@@ -330,6 +332,73 @@ class S6Layer(nn.Module):
         y = rearrange(y, "b d l -> b l d")
         return y
 
+@LayerRegistry.register("s6_naive")
+class S6_layer_naive(nn.Module):
+    def __init__(
+            self,
+        d_model=None,
+        d_state=16,
+        dt_rank="auto",
+    ):
+        super(S6_layer_naive, self).__init__()
+        self.d_model = d_model
+        self.d_state = d_state
+        self.dt_rank = math.ceil(self.d_model / 16) if dt_rank == "auto" else dt_rank
+        self.x_proj = nn.Linear(
+            self.d_model, self.dt_rank + self.d_state * 2, bias=False
+        )
+        self.dt_proj = nn.Linear(self.dt_rank, self.d_model, bias=True)
+
+        dt = torch.exp(
+            torch.rand(self.d_model) * (math.log(0.1) - math.log(0.001))
+            + math.log(0.001)
+        ).clamp(min=1e-3)
+        # Inverse of softplus:
+        inv_dt = dt + torch.log(-torch.expm1(-dt))
+        with torch.no_grad():
+            self.dt_proj.bias.copy_(inv_dt)
+        # Our initialization would set all Linear.bias to zero, need to mark this one as _no_reinit
+        self.dt_proj.bias._no_reinit = True
+
+        A = repeat(
+            torch.arange(1, self.d_state + 1, dtype=torch.float32),
+            "n -> d n",
+            d=self.d_model,
+        ).contiguous()
+        A_log = torch.log(A)  # Keep A_log in fp32
+        self.A_log = nn.Parameter(A_log)
+        self.D = nn.Parameter(torch.ones(self.d_model))
+
+    def discretize(self, dt: torch.Tensor, A: torch.Tensor, B:torch.Tensor) -> torch.Tensor:
+        """
+        Assuming zero hold discretization, we have:
+        A_bar = exp(A * dt)
+        B_bar = (exp(A * dt) - I) * A_inv * B
+        """
+        A_bar = torch.exp(A.unsqueeze(0).unsqueeze(1)*dt.unsqueeze(-1))
+        B_bar = (A_bar - torch.ones(self.d_model, device=dt.device).reshape(1, 1, self.d_model, 1)) * 1/A.unsqueeze(0).unsqueeze(1) * B.unsqueeze(2)
+        return A_bar, B_bar
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        Batch, _, seqlen  = x.shape #b d l
+        x_dbl = self.x_proj(rearrange(x, "b d l -> (b l) d"))  # (bl d)
+        dt, B, C = torch.split(x_dbl, [self.dt_rank, self.d_state, self.d_state], dim=-1)
+        dt = self.dt_proj.weight @ dt.t()
+        dt = rearrange(dt, "d (b l) -> b l d", l=seqlen)
+        B = rearrange(B, "(b l) dstate -> b l dstate", l=seqlen).contiguous()
+        C = rearrange(C, "(b l) dstate -> b l dstate", l=seqlen).contiguous()
+        A = -torch.exp(self.A_log.float())
+        A_bar, B_bar = self.discretize(dt, A, B)
+        A_bar = rearrange(A_bar, "b l d dstate -> b d l dstate", l=seqlen)
+        B_bar = rearrange(B_bar, "b l d dstate -> b d l dstate", l=seqlen)
+        
+        output = torch.empty(Batch, self.d_model, seqlen, device=x.device, dtype=x.dtype)
+        for i in range(Batch):
+            for j in range(self.d_model):
+                output[i, j] = parallel_scan_naive.apply(A_bar[i, j], B_bar[i, j], x[i, j], C[i])
+        breakpoint()
+        return rearrange(output, "b d l -> b l d")
+
 if __name__=="__main__":
     N = 64
     H = 128
@@ -338,3 +407,7 @@ if __name__=="__main__":
     class_out = 10
     device = "cuda" if torch.cuda.is_available() else "cpu"
     x = torch.randn(1, 784, H) #B L D
+
+    model = S6_layer_naive(d_model=H, d_state=N)
+    y = model(x)
+    print("Output shape:", y.shape)

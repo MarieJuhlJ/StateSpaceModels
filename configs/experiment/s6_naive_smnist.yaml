@@ -1,7 +1,7 @@
-name: s6_smnist
+name: s6_naive_smnist
 
 hyperparameters:
-  layer_cls: s6
+  layer_cls: s6_naive
   N: 64
   H: 128
   L: 784
