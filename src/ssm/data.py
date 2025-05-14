@@ -6,7 +6,6 @@ import numpy as np
 import glob
 import os
 import subprocess
-from torch.utils.data import DataLoader
 from types import SimpleNamespace
 from torch.utils.data import Dataset
 from omegaconf import DictConfig

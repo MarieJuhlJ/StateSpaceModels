@@ -234,7 +234,7 @@ class S4Model(lightning.LightningModule):
         if not self.forecasting:
             acc = (y == y_hat.argmax(dim=-1)).float().mean()
             self.log('val_acc', acc, on_epoch=True, on_step=True)
-        print(f"val_loss: {loss}, val_acc: {acc}")
+
         return loss
 
     def test_step(self, batch):

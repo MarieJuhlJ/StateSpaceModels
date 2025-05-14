@@ -1,7 +1,7 @@
 import os
 from ssm.model import S4Model
 from ssm.data import SMNIST, AudioMNIST, WeatherDataset
-from ssm.utils import get_train_val_dataset
+from ssm.utils import DatasetRegistry
 import lightning as pl
 from torch.utils.data import DataLoader, Subset
 import hydra
@@ -14,7 +14,20 @@ def train(cfg: DictConfig):
     hp_config =cfg.experiment.hyperparameters
     model = S4Model(layer_cls=hp_config.layer_cls, N=hp_config.N, H=hp_config.H, L=hp_config.L, num_blocks=hp_config.num_blocks, cls_out=hp_config.class_out, lr=hp_config.lr, weight_decay=hp_config.weight_decay, dropout=hp_config.dropout, forecasting=hp_config.forecasting, num_features=hp_config.num_features)
 
-    dataset_train, dataset_val = get_train_val_dataset(cfg.dataset)
+    #Prepare datasets
+    dataset_cfg = cfg.dataset.copy()  # Make a copy
+    dataset_train = DatasetRegistry.create(cfg.dataset)
+    dataset_cfg.update({"train": False})
+    dataset_val = DatasetRegistry.create(dataset_cfg) 
+
+    if cfg.get("k_folds", None):
+        # Create a split and select appropriate subset of data for this fold:
+        kf = KFold(n_splits=cfg.k_folds, shuffle=True, random_state=cfg.seed)
+        train_idx, val_idx = list(kf.split(dataset_train))[cfg.idx_fold-1]
+        print(f"Training fold {cfg.idx_fold + 1}/{cfg.k_folds}")
+        dataset_val = Subset(dataset_train, val_idx)
+        dataset_train = Subset(dataset_train, train_idx)
+
     train_dataloader = DataLoader(dataset_train, batch_size=hp_config.batch_size, shuffle=True, num_workers=4)
     val_dataloader = DataLoader(dataset_val, batch_size=hp_config.batch_size, shuffle=False, num_workers=4)
 

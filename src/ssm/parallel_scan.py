@@ -45,34 +45,53 @@ def binary_first_order(input0, input1):
     """
     A binary first-order function that combines two inputs.
     """
-    return torch.stack((input0[0] @ input1[0], input0[1] @ input1[0] + input1[1]), dim=0)
+    return torch.stack((input0[0] * input1[0], input0[1] * input1[0] + input1[1]), dim=0)
 
-if __name__ == '__main__':
-    # Example usage
-    input_array = torch.tensor([3,1,7,0,4,1,6,3], dtype=torch.float32)
-    print("Input Array:", input_array)
-    
-    # Test with addition
-    result = parallel_scan_shitty(input_array.clone())
-    print("Parallel Scan Add Result:", result)
-    
-    expected_result = torch.cumsum(input_array, dim=0)
-    print("Expected Result:", expected_result)
-    
-    assert torch.allclose(result, expected_result), "The parallel scan with addition result does not match the expected result."
-
-    # Test with multiplication
-    result = parallel_scan_shitty(input_array.clone(), torch.mul, identity=1)
-    print("Parallel Scan Mult Result:", result)
-
-    expected_result = torch.cumprod(input_array, dim=0)
-    print("Expected Result:", expected_result)
-    assert torch.allclose(result, expected_result), "The parallel scan with multiplication result does not match the expected result."
-
-    # Test with custom binary operation
-    A = torch.tensor([[1,2],[3,4]], dtype=torch.float32)
-    B = torch.tensor([[5,6],[7,8]], dtype=torch.float32)
+def test_parallel_scan():
+    A = torch.tensor([1, 2], dtype=torch.float32)
+    B = torch.tensor([5, 6], dtype=torch.float32)
     input_array = torch.stack([torch.stack((A,B)), torch.stack((B, A)), torch.stack((A.T, B)), torch.stack((B.T, A))])
     print("Input Array shape:", input_array.shape)
     result = parallel_scan_shitty(input_array.clone(), binary_first_order, identity=torch.tensor([1,0], dtype=torch.float32))
     print("Parallel Scan Custom Result shape:", result.shape)
+
+class parallel_scan_naive(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, A_bar, B_bar, u):
+        """
+        A_bar : (L, N)
+        B_bar : (L, N)
+        """
+        
+        ctx.save_for_backward(A_bar, u)
+        B_bar = B_bar * u
+        input_array = torch.stack([torch.stack((A_bar1, B_bar1)) for A_bar1, B_bar1 in zip(A_bar, B_bar)])
+
+        out = parallel_scan_shitty(input_array, binary_first_order, identity=torch.stack([torch.ones(A_bar.shape[-1]), torch.zeros(B_bar.shape[-1])]))
+        return out
+    
+    @staticmethod
+    def backward(ctx, grad_output):
+        #in progress :)
+        A_bar = ctx.saved_tensors
+        dl_dx = grad_output[:, 0]
+        breakpoint()
+        
+        return 1, 2, 3
+
+if __name__ == '__main__':
+    A_bar = torch.randn(4, 3, requires_grad=True)
+    B_bar = torch.randn(4, 3, requires_grad=True)
+    u = torch.randn(4, 3, requires_grad=True)
+
+    result = parallel_scan_naive.apply(A_bar, B_bar, u)
+
+    # Let’s reduce it to a scalar for backward()
+    loss = result.sum()
+    loss.backward()
+
+    print("Gradient wrt A_bar:")
+    print(A_bar.grad)
+    
+    print("Gradient wrt B_bar:")
+    print(B_bar.grad)
