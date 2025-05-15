@@ -73,16 +73,22 @@ def test_parallel_scan():
     print("Parallel Scan Custom Result shape:", result.shape)
 
 class parallel_scan_naive(torch.autograd.Function):
+    generate_vmap_rule = True
+
     @staticmethod
-    def forward(ctx, A_bar, B_bar, u, C):
+    def setup_context(ctx, inputs, output):
+       A_bar, B_bar, u, C = inputs
+       ctx.save_for_backward(A_bar, B_bar, C, u)
+
+    @staticmethod
+    def forward(A_bar, B_bar, u, C):
         """
         A_bar : (L, N)
         B_bar : (L, N)
         C : (L, N)
         u : (L)
         """
-        
-        ctx.save_for_backward(A_bar, B_bar, C, u)
+
         B_bar = B_bar * u.unsqueeze(-1)
         input_array = torch.stack([torch.stack((A_bar1, B_bar1)) for A_bar1, B_bar1 in zip(A_bar, B_bar)])
         x_states = parallel_scan_shitty(input_array, binary_first_order, identity=torch.stack([torch.ones(A_bar.shape[-1]), torch.zeros(B_bar.shape[-1])]))
@@ -97,9 +103,9 @@ class parallel_scan_naive(torch.autograd.Function):
         recompute_array = torch.stack([torch.stack((A_bar1, B_bar1)) for A_bar1, B_bar1 in zip(A_bar, B_bar)])
         x_states = parallel_scan_shitty(recompute_array, binary_first_order, identity=torch.stack([torch.ones(A_bar.shape[-1]), torch.zeros(B_bar.shape[-1])]))[:, 1]
 
-        input_array = torch.stack([torch.stack((A_bar, dl_dx)) for A_bar, dl_dx in zip(A_bar[::-1], dl_dx[::-1])])
+        input_array = torch.stack([torch.stack((A_bar, dl_dx)) for A_bar, dl_dx in zip(torch.flip(A_bar, dims=[0]), torch.flip(dl_dx, dims=[0]))])
         grad_x = parallel_scan_shitty(input_array, binary_first_order, identity=torch.stack([torch.ones(A_bar.shape[-1]), torch.zeros(dl_dx.shape[-1])]))[:, 1]
-        grad_x = grad_x[::-1]
+        grad_x = torch.flip(grad_x, dims=[0])
         shifted_x_states = torch.cat([torch.zeros(x_states.shape[1]).unsqueeze(0), x_states[1:]], dim=0)
         grad_A_bar = shifted_x_states * grad_x #shift x_states by 1?
         

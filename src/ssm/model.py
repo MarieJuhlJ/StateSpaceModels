@@ -391,12 +391,10 @@ class S6_layer_naive(nn.Module):
         A_bar, B_bar = self.discretize(dt, A, B)
         A_bar = rearrange(A_bar, "b l d dstate -> b d l dstate", l=seqlen)
         B_bar = rearrange(B_bar, "b l d dstate -> b d l dstate", l=seqlen)
-        
-        output = torch.empty(Batch, self.d_model, seqlen, device=x.device, dtype=x.dtype)
-        for i in range(Batch):
-            for j in range(self.d_model):
-                output[i, j] = parallel_scan_naive.apply(A_bar[i, j], B_bar[i, j], x[i, j], C[i])
-        breakpoint()
+
+        C = repeat(C, 'b l dstate-> b d l dstate', d=self.d_model)
+        scan_fn = lambda A, B, x, C: parallel_scan_naive.apply(A, B, x, C)
+        output = torch.func.vmap(torch.func.vmap(scan_fn, in_dims=0), in_dims = 0)(A_bar, B_bar, x, C)
         return rearrange(output, "b d l -> b l d")
 
 if __name__=="__main__":
@@ -406,7 +404,7 @@ if __name__=="__main__":
     num_blocks = 4
     class_out = 10
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    x = torch.randn(1, 784, H) #B L D
+    x = torch.randn(1, H, L) #B D L
 
     model = S6_layer_naive(d_model=H, d_state=N)
     y = model(x)
