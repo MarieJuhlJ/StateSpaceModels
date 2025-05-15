@@ -97,13 +97,14 @@ class parallel_scan_naive(torch.autograd.Function):
         recompute_array = torch.stack([torch.stack((A_bar1, B_bar1)) for A_bar1, B_bar1 in zip(A_bar, B_bar)])
         x_states = parallel_scan_shitty(recompute_array, binary_first_order, identity=torch.stack([torch.ones(A_bar.shape[-1]), torch.zeros(B_bar.shape[-1])]))[:, 1]
 
-        input_array = torch.stack([torch.stack((A_bar, dl_dx)) for A_bar, dl_dx in zip(A_bar, dl_dx)])
+        input_array = torch.stack([torch.stack((A_bar, dl_dx)) for A_bar, dl_dx in zip(A_bar[::-1], dl_dx[::-1])])
         grad_x = parallel_scan_shitty(input_array, binary_first_order, identity=torch.stack([torch.ones(A_bar.shape[-1]), torch.zeros(dl_dx.shape[-1])]))[:, 1]
+        grad_x = grad_x[::-1]
         shifted_x_states = torch.cat([torch.zeros(x_states.shape[1]).unsqueeze(0), x_states[1:]], dim=0)
         grad_A_bar = shifted_x_states * grad_x #shift x_states by 1?
         
         grad_B_bar = u.unsqueeze(-1) * grad_x
-        grad_u = u # Not correct, but does not matter?.
+        grad_u = u # Not correct, but does not matter?. isn't it just B_bar, but no doesn't matter, input does not have gradients right?
         grad_C = x_states * dl_dx
         
         return grad_A_bar, grad_B_bar, grad_u, grad_C
