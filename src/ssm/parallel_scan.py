@@ -9,7 +9,7 @@ def up_sweep(input_array, binary_operation=torch.add):
     """
     for i in range(int(math.log2(len(input_array)))):
         for j in range(0, len(input_array), 2**(i+1)):
-            input_array[j + 2**(i+1) - 1] = binary_operation(input_array[j + 2**(i+1) - 1], input_array[j + 2**i - 1])
+            input_array[j + 2**(i+1) - 1] = binary_operation(input_array[j + 2**i - 1], input_array[j + 2**(i+1) - 1])
     return input_array
 
 def down_sweep(input_array, binary_operation=torch.add, identity=0):
@@ -40,16 +40,16 @@ def parallel_scan_shitty(input_array, binary_operation=torch.add, identity=0):
     if padding_len != 0:
         padding_len = 2**padding_len - input_array.shape[0]
         
-        padding_shape = (padding_len, *input_array.shape[1:])
-        padding = torch.zeros(padding_shape, dtype=input_array.dtype, device=input_array.device)
-        input_array = torch.cat([input_array, padding])
+        padding_shape = (padding_len, 1, *input_array.shape[2:])
+        padding_zeros = torch.zeros(padding_shape, dtype=input_array.dtype, device=input_array.device)
+        padding_ones = torch.ones(padding_shape, dtype=input_array.dtype, device=input_array.device)
+        input_array = torch.cat([input_array, torch.cat([padding_ones, padding_zeros], dim = 1)])
 
     # Step 1: Up-sweep phase
     up_sweep_result = up_sweep(input_array, binary_operation)
     
     # Step 2: Down-sweep phase
     final_result = down_sweep(up_sweep_result, binary_operation, identity=identity)
-    
     return final_result[:original_len]
 
 def is_divisible_by_2(x: int) -> bool:
@@ -88,16 +88,19 @@ class parallel_scan_naive(torch.autograd.Function):
         C : (L, N)
         u : (L)
         """
+        assert len(A_bar) == len(B_bar) - 1, "first element of A_bar should be ID."
+        A_bar = torch.cat([torch.ones((1, *A_bar.shape[1:])), A_bar], dim=0)
 
         B_bar = B_bar * u.unsqueeze(-1)
         input_array = torch.stack([torch.stack((A_bar1, B_bar1)) for A_bar1, B_bar1 in zip(A_bar, B_bar)])
         x_states = parallel_scan_shitty(input_array, binary_first_order, identity=torch.stack([torch.ones(A_bar.shape[-1]), torch.zeros(B_bar.shape[-1])]))
-        y = [torch.sum(c * xk) for c, xk in zip(C, x_states)]
+        y = [torch.sum(c * xk) for c, xk in zip(C, x_states[:,1])]
         return torch.stack(y)
     
     @staticmethod
     def backward(ctx, grad_output):
         A_bar, B_bar, C, u = ctx.saved_tensors
+        A_bar = torch.cat([torch.ones((1, *A_bar.shape[1:])), A_bar], dim=0)
         dl_dx = grad_output.unsqueeze(-1) * C
 
         recompute_array = torch.stack([torch.stack((A_bar1, B_bar1)) for A_bar1, B_bar1 in zip(A_bar, B_bar)])
@@ -106,20 +109,20 @@ class parallel_scan_naive(torch.autograd.Function):
         input_array = torch.stack([torch.stack((A_bar, dl_dx)) for A_bar, dl_dx in zip(torch.flip(A_bar, dims=[0]), torch.flip(dl_dx, dims=[0]))])
         grad_x = parallel_scan_shitty(input_array, binary_first_order, identity=torch.stack([torch.ones(A_bar.shape[-1]), torch.zeros(dl_dx.shape[-1])]))[:, 1]
         grad_x = torch.flip(grad_x, dims=[0])
-        shifted_x_states = torch.cat([torch.zeros(x_states.shape[1]).unsqueeze(0), x_states[1:]], dim=0)
+        shifted_x_states = torch.cat([torch.zeros(x_states.shape[1]).to(x_states.device).unsqueeze(0), x_states[1:]], dim=0)
         grad_A_bar = shifted_x_states * grad_x #shift x_states by 1?
         
         grad_B_bar = u.unsqueeze(-1) * grad_x
         grad_u = u # Not correct, but does not matter?. isn't it just B_bar, but no doesn't matter, input does not have gradients right?
         grad_C = x_states * dl_dx
         
-        return grad_A_bar, grad_B_bar, grad_u, grad_C
+        return grad_A_bar[1:], grad_B_bar, grad_u, grad_C
 
 if __name__ == '__main__':
-    A_bar = torch.randn(4, 3, requires_grad=True)
-    B_bar = torch.randn(4, 3, requires_grad=True)
-    C = torch.randn(4, 3, requires_grad=True)
-    u = torch.randn(4, requires_grad=True)
+    A_bar = torch.tensor([[3,1,2], [5,1,1]], dtype=torch.float32, requires_grad=True)
+    B_bar = torch.tensor([[6,1,2], [9,8,3], [3,4,6]], dtype=torch.float32, requires_grad=True)
+    C = torch.tensor([[1,2,3], [4,5,7], [1,2,6]], dtype=torch.float32, requires_grad=True)
+    u = torch.tensor([5,8,3], dtype=torch.float32, requires_grad=True)
 
     result = parallel_scan_naive.apply(A_bar, B_bar, u, C)
 
