@@ -375,6 +375,7 @@ class S6_layer_naive(nn.Module):
         A_bar = exp(A * dt)
         B_bar = (exp(A * dt) - I) * A_inv * B
         """
+        dt = 1/(1+torch.exp(dt)) # softplus
         A_bar = torch.exp(A.unsqueeze(0).unsqueeze(1)*dt.unsqueeze(-1))
         B_bar = (A_bar - torch.ones(self.d_model, device=dt.device).reshape(1, 1, self.d_model, 1)) * 1/A.unsqueeze(0).unsqueeze(1) * B.unsqueeze(2)
         return A_bar, B_bar
