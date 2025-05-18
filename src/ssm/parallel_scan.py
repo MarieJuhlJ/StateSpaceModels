@@ -79,6 +79,7 @@ class parallel_scan_naive(torch.autograd.Function):
     def setup_context(ctx, inputs, output):
        A_bar, B_bar, u, C = inputs
        ctx.save_for_backward(A_bar, B_bar, C, u)
+       ctx.mark_non_differentiable(u)
 
     @staticmethod
     def forward(A_bar, B_bar, u, C):
@@ -100,21 +101,22 @@ class parallel_scan_naive(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grad_output):
         A_bar, B_bar, C, u = ctx.saved_tensors
+        A_flip = torch.cat([torch.ones((1, *A_bar.shape[1:])), torch.flip(A_bar, dims=[0])], dim=0) 
         A_bar = torch.cat([torch.ones((1, *A_bar.shape[1:])), A_bar], dim=0)
         dl_dx = grad_output.unsqueeze(-1) * C
 
-        recompute_array = torch.stack([torch.stack((A_bar1, B_bar1)) for A_bar1, B_bar1 in zip(A_bar, B_bar)])
+        recompute_array = torch.stack([torch.stack((A_bar1, B_bar1)) for A_bar1, B_bar1 in zip(A_bar, B_bar * u.unsqueeze(-1))])
         x_states = parallel_scan_shitty(recompute_array, binary_first_order, identity=torch.stack([torch.ones(A_bar.shape[-1]), torch.zeros(B_bar.shape[-1])]))[:, 1]
 
-        input_array = torch.stack([torch.stack((A_bar, dl_dx)) for A_bar, dl_dx in zip(torch.flip(A_bar, dims=[0]), torch.flip(dl_dx, dims=[0]))])
+        input_array = torch.stack([torch.stack((A_bar, dl_dx)) for A_bar, dl_dx in zip((A_flip), torch.flip(dl_dx, dims=[0]))])
         grad_x = parallel_scan_shitty(input_array, binary_first_order, identity=torch.stack([torch.ones(A_bar.shape[-1]), torch.zeros(dl_dx.shape[-1])]))[:, 1]
         grad_x = torch.flip(grad_x, dims=[0])
-        shifted_x_states = torch.cat([torch.zeros(x_states.shape[1]).to(x_states.device).unsqueeze(0), x_states[1:]], dim=0)
-        grad_A_bar = shifted_x_states * grad_x #shift x_states by 1?
+        shifted_x_states = torch.cat([torch.zeros(x_states.shape[1]).to(x_states.device).unsqueeze(0), x_states[:-1]], dim=0)
+        grad_A_bar = shifted_x_states * grad_x
         
         grad_B_bar = u.unsqueeze(-1) * grad_x
-        grad_u = u # Not correct, but does not matter?. isn't it just B_bar, but no doesn't matter, input does not have gradients right?
-        grad_C = x_states * dl_dx
+        grad_u = None
+        grad_C = grad_output.unsqueeze(-1) * x_states
         
         return grad_A_bar[1:], grad_B_bar, grad_u, grad_C
 
