@@ -1,6 +1,35 @@
-# ssm
+# 🧠 SSM Learning Project
 
-This repository contains implementations of different neural networks based on state space models.
+This repository contains implementations of various **State Space Models**:  
+**S4**, **S4DSS**, and **S6**.
+
+The primary goal of this project is to **build intuition** around these models. To that end, the implementations prioritize **clarity and alignment with theoretical derivations** over raw performance.
+
+---
+
+## 📂 Code Structure
+
+- **Models**  
+  The implementations of `S4`, `S4DSS`, and `S6` can be found in:  
+  [`src/ssm/model.py`](src/ssm/model.py)
+
+- **Parallel Scan**  
+  Illustrative code for the **forward and backward passes** of `S6` is provided in:  
+  [`src/ssm/parallel_scan.py`](src/ssm/parallel_scan.py)  
+  ⚠️ This code does **not** run on appropiately on CUDA. While it omits kernel fusion, the core theoretical structure is accurate but sequential due to the nature of python.
+
+- **Notebook Example**  
+  For a working demonstration of how to run the custom autograd function (including forward and backward passes), see:  
+  [`notebooks/parallel_scan.ipynb`](notebooks/parallel_scan.ipynb)
+
+---
+
+## 📝 Notes
+
+- The focus is on **didactic clarity**, which means:
+  - Code is intentionally written to closely follow mathematical derivations
+  - Some performance optimizations are sacrificed for readability
+
 
 ## Prerequisites
 
