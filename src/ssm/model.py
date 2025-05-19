@@ -139,14 +139,14 @@ class S4sequence(nn.Module):
         super(S4sequence, self).__init__()
         self.use_glu = glu
 
-        self.norm = nn.LayerNorm((L,H), elementwise_affine = False, bias = False)
+        self.norm = nn.LayerNorm((L,H))
+        # self.norm = nn.LayerNorm((L,H), elementwise_affine = False, bias = False)
 
         if layer_cls != "s6" and layer_cls != "s6_naive":
             self.ssm = nn.ModuleList([LayerRegistry.create(layer_cls, N, L) for _ in range(H)])
         else:
             self.ssm = LayerRegistry.create(layer_cls, H, N)
-        self.activation = nn.GELU() # Perhaps replace with ReLU based on "ReLU strikes back" paper (on LLM tasks)
-        self.out1 = nn.Linear(H, H)
+        self.activation = nn.ReLU()
         if self.use_glu:
             self.out2 = nn.Linear(H, H)
         self.dropout = nn.Dropout(dropout)
@@ -164,10 +164,6 @@ class S4sequence(nn.Module):
         x = self.activation(x)
         x = self.dropout(x)
 
-        if self.use_glu:
-            x = self.out1(x)*nn.activation()(self.out2(x)) # a gated linear unit
-        else:
-            x = self.out1(x)
         return x + skip
 
 class S4Model(lightning.LightningModule):
@@ -192,17 +188,21 @@ class S4Model(lightning.LightningModule):
         self.enc = nn.Linear(num_features,H)
 
         self.blocks = nn.ModuleList([S4sequence(layer_cls, N, H, L, dropout=dropout) for _ in range(num_blocks)])
+        self.cls = nn.Linear(H, cls_out)
 
         if self.forecasting:
-            self.cls = nn.Linear(H, num_features)
-            self.loss = nn.MSELoss()
-        else:
-            self.cls = nn.Linear(H, cls_out)
+            self.loss = nn.L1Loss()
+            self.mse = nn.MSELoss()
+        else:    
             self.loss = nn.CrossEntropyLoss()
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if x.shape[-1] != self.num_features:
             x = x.unsqueeze(-1)
+
+        if self.forecasting:
+            distrubition_shift_factor = x[:, -1, :].unsqueeze(1)
+            x = x - distrubition_shift_factor
         x = self.enc(x)
         for block in self.blocks:
             x = block(x)
@@ -210,7 +210,10 @@ class S4Model(lightning.LightningModule):
         if not self.forecasting:
             x = torch.mean(x, dim=1)
         x = self.cls(x)
-        if not self.forecasting:
+
+        if self.forecasting:
+            x = x + distrubition_shift_factor[:, -1, -1].unsqueeze(-1).unsqueeze(-1)
+        else: #ELIF CLASSIFIER
             x = nn.Softmax(dim=-1)(x)
         return x
     
@@ -218,10 +221,13 @@ class S4Model(lightning.LightningModule):
         x, y = batch
         y_hat = self(x)
         loss = self.loss(y_hat, y)
-        self.log('train_loss', loss, on_epoch=True, on_step=True)
+        self.log('train_loss', loss, on_epoch=True, on_step=False)
         if not self.forecasting:
             acc = (y == y_hat.argmax(dim=-1)).float().mean()
-            self.log('train_acc', acc, on_epoch=True, on_step=True)
+            self.log('train_acc', acc, on_epoch=True, on_step=False)
+        elif self.forecasting:
+            mse = self.mse(y_hat,y)
+            self.log('train_MSE', mse, on_epoch=True)
 
         return loss
 
@@ -232,10 +238,13 @@ class S4Model(lightning.LightningModule):
         x, y = batch
         y_hat = self(x)
         loss = self.loss(y_hat, y)
-        self.log('val_loss', loss, on_epoch=True, on_step=True)
+        self.log('val_loss', loss, on_epoch=True, on_step=False)
         if not self.forecasting:
             acc = (y == y_hat.argmax(dim=-1)).float().mean()
-            self.log('val_acc', acc, on_epoch=True, on_step=True)
+            self.log('val_acc', acc, on_epoch=True, on_step=False)
+        elif self.forecasting:
+            mse = self.mse(y_hat,y)
+            self.log('val_MSE', mse, on_epoch=True)
 
         return loss
 
@@ -298,6 +307,17 @@ class S6Layer(nn.Module):
         # Our initialization would set all Linear.bias to zero, need to mark this one as _no_reinit
         self.dt_proj.bias._no_reinit = True
 
+        self.conv1d = nn.Conv1d(
+            in_channels=self.d_model,
+            out_channels=self.d_model,
+            bias=True,
+            kernel_size=4,
+            groups=self.d_model,
+            padding=4 - 1
+        )
+        
+        self.act = nn.SiLU()
+
         A = repeat(
             torch.arange(1, self.d_state + 1, dtype=torch.float32, device=device),
             "n -> d n",
@@ -311,6 +331,7 @@ class S6Layer(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         Batch, _, seqlen = x.shape #(b d l)
         x_dbl = self.x_proj(rearrange(x, "b d l -> (b l) d"))  # (bl d)
+        x = self.act(self.conv1d(x)[..., :seqlen])
         dt, B, C = torch.split(x_dbl, [self.dt_rank, self.d_state, self.d_state], dim=-1)
         dt = self.dt_proj.weight @ dt.t()
         dt = rearrange(dt, "d (b l) -> b d l", l=seqlen)
@@ -395,18 +416,22 @@ class S6_layer_naive(nn.Module):
 
         C = repeat(C, 'b l dstate-> b d l dstate', d=self.d_model)
         scan_fn = lambda A, B, x, C: parallel_scan_naive.apply(A, B, x, C)
-        output = torch.func.vmap(torch.func.vmap(scan_fn, in_dims=0), in_dims = 0)(A_bar, B_bar, x, C)
+        output = torch.func.vmap(torch.func.vmap(scan_fn, in_dims=0), in_dims = 0)(A_bar[:,:,1:, :], B_bar, x, C)
         return rearrange(output, "b d l -> b l d")
 
-if __name__=="__main__":
+if __name__ == "__main__":
     N = 64
     H = 128
     L = 784
     num_blocks = 4
     class_out = 10
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    x = torch.randn(1, H, L) #B D L
+    x = torch.randn(1, H, L).to(device)  # B D L
 
-    model = S6_layer_naive(d_model=H, d_state=N)
+    model = S4Layer(64,128).to(device)
     y = model(x)
     print("Output shape:", y.shape)
+
+    # Count trainable parameters
+    num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print("Number of trainable parameters:", num_params)

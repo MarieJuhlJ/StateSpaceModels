@@ -90,7 +90,7 @@ class parallel_scan_naive(torch.autograd.Function):
         u : (L)
         """
         assert len(A_bar) == len(B_bar) - 1, "first element of A_bar should be ID."
-        A_bar = torch.cat([torch.ones((1, *A_bar.shape[1:])), A_bar], dim=0)
+        A_bar = torch.cat([torch.ones((1, *A_bar.shape[1:]), device=A_bar.device), A_bar], dim=0)
 
         B_bar = B_bar * u.unsqueeze(-1)
         input_array = torch.stack([torch.stack((A_bar1, B_bar1)) for A_bar1, B_bar1 in zip(A_bar, B_bar)])
@@ -101,8 +101,8 @@ class parallel_scan_naive(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grad_output):
         A_bar, B_bar, C, u = ctx.saved_tensors
-        A_flip = torch.cat([torch.ones((1, *A_bar.shape[1:])), torch.flip(A_bar, dims=[0])], dim=0) 
-        A_bar = torch.cat([torch.ones((1, *A_bar.shape[1:])), A_bar], dim=0)
+        A_flip = torch.cat([torch.ones((1, *A_bar.shape[1:]), device=A_bar.device), torch.flip(A_bar, dims=[0])], dim=0) 
+        A_bar = torch.cat([torch.ones((1, *A_bar.shape[1:]), device=A_bar.device), A_bar], dim=0)
         dl_dx = grad_output.unsqueeze(-1) * C
 
         recompute_array = torch.stack([torch.stack((A_bar1, B_bar1)) for A_bar1, B_bar1 in zip(A_bar, B_bar * u.unsqueeze(-1))])

@@ -2,12 +2,12 @@ name: s6_naive_smnist
 
 hyperparameters:
   layer_cls: s6_naive
-  N: 64
-  H: 128
+  N: 32
+  H: 64
   L: 784
   num_features: 1
   forecasting: False
-  num_blocks: 4
+  num_blocks: 2
   class_out: 10
   batch_size: 32
   max_epochs: 50

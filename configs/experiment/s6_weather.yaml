@@ -3,15 +3,15 @@ name: s6_weather
 hyperparameters:
   layer_cls: s6
   N: 64
-  H: 256
-  L: 96
+  H: 512
+  L: 120
   num_features: 12
   forecasting: True
   num_blocks: 4
-  class_out: 1
+  class_out: 12
   batch_size: 32
   max_epochs: 50
   log_every_n_steps: 10
-  lr: 0.01
+  lr: 0.00005
   weight_decay: 0.01
-  dropout: 0.25
+  dropout: 0.2

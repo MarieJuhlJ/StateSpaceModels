@@ -77,10 +77,9 @@ class ETTh1(Dataset):
         self.window_size = cfg.window_size
         self.train = cfg.train
         self.mask_idx = self.window_size // 2
-        self.data = pd.read_csv(f"{cfg.path}/ETDataset/ETT-small/ETTh1.csv").values[:, 1:].astype(np.float32)
-        self.train_data = self.data[:int(len(self.data) * 0.8)]
-        self.test_data = self.data[int(len(self.data) * 0.8):]
-        self.num_features = self.data.shape[1]
+        self.data = pd.read_csv(f"{cfg.path}/ETDataset/ETT-small/ETTh2.csv").values[:, 1:].astype(np.float32)
+        self.train_data = self.data[:int(len(self.data) * 0.80)]
+        self.test_data = self.data[int(len(self.data) * 0.80):]
 
     def __len__(self):
         if self.train:
@@ -96,11 +95,8 @@ class ETTh1(Dataset):
             data = torch.tensor(self.train_data[idx:idx + self.window_size])
         else:
             data = torch.tensor(self.test_data[idx:idx + self.window_size])
-        
-        x, y  = torch.zeros(self.window_size, self.num_features), torch.zeros(self.window_size, self.num_features)
-        x[:self.mask_idx] = data[:self.mask_idx]
-        y[self.mask_idx:] = data[self.mask_idx:]
-        return torch.tensor(x), torch.tensor(y) #(L, D), (L, D
+
+        return data[:self.mask_idx], data[self.mask_idx:, -1].unsqueeze(-1) #(L, D), (L, 1)
 
 @DatasetRegistry.register("weather")
 class WeatherDataset(Dataset):
@@ -113,8 +109,8 @@ class WeatherDataset(Dataset):
         self.train = cfg.train
         self.mask_idx = self.window_size // 2
         self.data = pd.read_csv(f"{cfg.path}/weather/WTH.csv").values[:, 1:].astype(np.float32)
-        self.train_data = self.data[:int(len(self.data) * 0.8)]
-        self.test_data = self.data[int(len(self.data) * 0.8):]
+        self.train_data = self.data[:int(len(self.data) * 0.85)]
+        self.test_data = self.data[int(len(self.data) * 0.85):]
         self.num_features = self.data.shape[1]
 
     def __len__(self):
