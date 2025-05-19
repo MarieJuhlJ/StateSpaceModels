@@ -1,0 +1,4 @@
+name: etth1
+path: "./data"
+train: True
+window_size: 96
